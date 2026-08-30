@@ -42,7 +42,8 @@ const DEFINITIONS = {
 		function: {
 			name: 'web_search',
 			description: 'Search the web. Returns a list of results with title, url and snippet. '
-				+ 'Results may be partial; fetch a result url with web_fetch for details.',
+				+ 'Snippets are short — fetch a promising result url with web_fetch when you '
+				+ 'need the actual content.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -169,11 +170,7 @@ export async function executeTool(call, enabled = []) {
 			const count = data.results?.length ?? 0
 			return {
 				content: JSON.stringify(data),
-				// a bare "0 results" reads like a bug; say that the provider
-				// simply cannot answer this kind of query
-				summary: count === 0
-					? `"${query}" — no results (${data.provider} covers entities only)`
-					: `"${query}" — ${count} results (${data.provider})`,
+				summary: `"${query}" — ${count === 0 ? 'no results' : `${count} results`}`,
 			}
 		}
 

@@ -138,13 +138,15 @@ How it works, and what it changes:
 * **Tool rounds are ephemeral.** Fetched page content is fed to the model but never stored in the
   chat history — the next message does not re-send kilobytes of scraped text. A collapsed
   "tool calls" log on the answer shows what happened.
-* Search providers: **DuckDuckGo** (default, zero setup) or a self-hosted **SearXNG** instance
-  (needs `formats: [html, json]` in its `settings.yml`). Configure in the app settings.
+* **`web_search` needs a self-hosted SearXNG instance.** Put its URL in the app settings; the
+  instance needs `formats: [html, json]` in its `settings.yml`. Without a URL the tool reports
+  itself as unconfigured — `web_fetch` and `get_current_datetime` still work.
 
-  Be aware what the default actually is: DuckDuckGo's Instant Answer API returns encyclopedic
-  entities only. `berlin` works, `weather in berlin tomorrow` returns **nothing** — it is not a
-  web search engine. If you want the model to answer questions from the live web, run SearXNG.
-  The tool tells the model why a result set was empty so it does not start inventing URLs.
+  There is no hosted default. A DuckDuckGo fallback was tried and removed: its Instant Answer API
+  serves encyclopedic entities, not web results. `berlin` returned 10 hits while
+  `weather in berlin tomorrow`, `latest news` and `python asyncio tutorial` each returned zero,
+  and the model responded to the empty list by inventing URLs to fetch. A tool that silently
+  fails at its actual job is worse than one that is absent.
 * The fetch endpoint is intentionally locked down: http/https only, standard ports only, no
   credentials in URLs, SSRF protection via Nextcloud's HTTP client (DNS pinning, local address
   blocking, re-validation on every redirect), 2 MB response cap, text extraction only — the

@@ -16,17 +16,17 @@ use Psr\Log\LoggerInterface;
 /**
  * Web search executed by the server on behalf of the browser.
  *
- * Two providers:
+ * SearXNG only. There used to be a DuckDuckGo fallback via the Instant Answer
+ * API, on the assumption that a zero-setup provider beats none — it does not.
+ * That API returns encyclopedic entities, so "berlin" worked while "weather in
+ * berlin tomorrow" returned nothing at all. An empty result set made the model
+ * conclude nothing existed and start inventing URLs to fetch. A tool that
+ * silently fails at the actual job is worse than an absent one.
  *
- * - `searxng`: a SearXNG instance configured by the user. Full web results.
- *   The instance needs `formats: [html, json]` in its settings.yml. Requests
- *   go through Nextcloud's SSRF-guarded HTTP client like every other fetch —
- *   unless the admin has allowed local servers, the instance must be
- *   reachable via a public address.
- *
- * - `duckduckgo`: the Instant Answer API. No key, no configuration, but
- *   only abstracts/definitions, not full result lists. It is the zero-setup
- *   fallback, not a real search.
+ * The instance needs `formats: [html, json]` in its settings.yml. Requests go
+ * through Nextcloud's SSRF-guarded HTTP client like every other fetch — unless
+ * the admin has allowed local servers, the instance must be reachable via a
+ * public address.
  */
 class WebSearchService {
 	private const REQUEST_TIMEOUT = 15;
@@ -53,31 +53,19 @@ class WebSearchService {
 		$query = mb_substr($query, 0, self::MAX_QUERY_LENGTH);
 
 		$settings = $this->settings->get($userId);
-		$provider = $settings['search_provider'];
-
-		$results = match ($provider) {
-			'searxng' => $this->searxng($query, (string)$settings['searxng_url']),
-			default => $this->duckduckgo($query),
-		};
+		$results = $this->searxng($query, (string)$settings['searxng_url']);
 
 		$payload = [
-			'provider' => $provider,
+			'provider' => 'searxng',
 			'query' => $query,
 			'results' => array_slice($results, 0, self::MAX_RESULTS),
 		];
 
-		// An empty result list is the normal case for DuckDuckGo: its Instant
-		// Answer API only knows entities ("berlin"), not questions ("weather in
-		// berlin tomorrow"). Without an explanation the model reads this as
-		// "nothing exists" and starts guessing URLs to fetch, so tell it what
-		// actually happened and what to do instead.
+		// Say it explicitly, otherwise the model treats an empty list as
+		// "this does not exist" and starts guessing URLs for web_fetch.
 		if ($payload['results'] === []) {
-			$payload['note'] = $provider === 'duckduckgo'
-				? 'No results. This provider only covers encyclopedic entities, not questions, '
-					. 'news or weather. Do not guess URLs — tell the user that the DuckDuckGo '
-					. 'instant answer backend cannot answer this and that a SearXNG instance '
-					. 'can be configured in the app settings for real web search.'
-				: 'No results for this query. Consider rephrasing it.';
+			$payload['note'] = 'No results for this query. Try rephrasing it, or tell the user '
+				. 'that the search returned nothing. Do not guess URLs.';
 		}
 
 		return $payload;
@@ -88,7 +76,9 @@ class WebSearchService {
 	 */
 	private function searxng(string $query, string $baseUrl): array {
 		if ($baseUrl === '') {
-			throw new BadRequestException('no SearXNG instance configured — set one in the settings');
+			throw new BadRequestException(
+				'no SearXNG instance configured — set one in the app settings to enable web search'
+			);
 		}
 
 		$url = rtrim($baseUrl, '/') . '/search?' . http_build_query([
@@ -108,62 +98,6 @@ class WebSearchService {
 				'url' => $this->clip((string)$entry['url'], 1024),
 				'snippet' => $this->clip((string)($entry['content'] ?? ''), 500),
 			];
-		}
-
-		return $results;
-	}
-
-	/**
-	 * Instant answers only. Kept deliberately: zero configuration beats no
-	 * search at all, and the tool description tells the model how weak it is.
-	 *
-	 * @return array<int, array{title: string, url: string, snippet: string}>
-	 */
-	private function duckduckgo(string $query): array {
-		$url = 'https://api.duckduckgo.com/?' . http_build_query([
-			'q' => $query,
-			'format' => 'json',
-			'no_html' => '1',
-			'skip_disambig' => '0',
-		]);
-
-		$payload = $this->getJson($url);
-		$results = [];
-
-		$abstract = (string)($payload['AbstractText'] ?? '');
-		if ($abstract !== '') {
-			$results[] = [
-				'title' => $this->clip((string)($payload['Heading'] ?? $query), 200),
-				'url' => $this->clip((string)($payload['AbstractURL'] ?? ''), 1024),
-				'snippet' => $this->clip($abstract, 500),
-			];
-		}
-
-		$answer = (string)($payload['Answer'] ?? '');
-		if ($answer !== '') {
-			$results[] = [
-				'title' => 'Direct answer',
-				'url' => '',
-				'snippet' => $this->clip($answer, 500),
-			];
-		}
-
-		foreach (($payload['RelatedTopics'] ?? []) as $topic) {
-			if (!is_array($topic)) {
-				continue;
-			}
-			// nested categories carry their entries under Topics
-			$entries = isset($topic['Topics']) && is_array($topic['Topics']) ? $topic['Topics'] : [$topic];
-			foreach ($entries as $entry) {
-				if (!is_array($entry) || empty($entry['FirstURL']) || empty($entry['Text'])) {
-					continue;
-				}
-				$results[] = [
-					'title' => $this->clip(strtok((string)$entry['Text'], '-') ?: (string)$entry['Text'], 200),
-					'url' => $this->clip((string)$entry['FirstURL'], 1024),
-					'snippet' => $this->clip((string)$entry['Text'], 500),
-				];
-			}
 		}
 
 		return $results;

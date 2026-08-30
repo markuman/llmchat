@@ -43,7 +43,6 @@ class SettingsController extends ApiController {
 		?bool $markdown_rendering = null,
 		?bool $show_reasoning = null,
 		?int $default_profile_id = null,
-		?string $search_provider = null,
 		?string $searxng_url = null,
 	): DataResponse {
 		$data = array_filter([
@@ -53,7 +52,6 @@ class SettingsController extends ApiController {
 			'markdown_rendering' => $markdown_rendering,
 			'show_reasoning' => $show_reasoning,
 			'default_profile_id' => $default_profile_id,
-			'search_provider' => $search_provider,
 			'searxng_url' => $searxng_url,
 		], static fn ($v) => $v !== null);
 

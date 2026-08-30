@@ -64,19 +64,10 @@
 				{{ t('llmchat', 'Display only — the tokens are still generated. Turn reasoning off in the profile to actually save them.') }}
 			</p>
 
-			<NcSelect
-				v-model="searchProvider"
-				:input-label="t('llmchat', 'Web search provider')"
-				:options="searchProviderOptions"
-				:clearable="false"
-				label="label" />
-			<p v-if="config.settings.search_provider === 'duckduckgo'" class="drawer__hint">
-				{{ t('llmchat', 'Encyclopedic entities only ("Berlin"), no questions, news or weather — those return nothing. Needs no setup. For real web search, run a SearXNG instance.') }}
-			</p>
-
-			<div v-if="config.settings.search_provider === 'searxng'" class="drawer__field">
+			<!-- SearXNG is the only search backend; without a URL, web search is off -->
+			<div class="drawer__field">
 				<label class="drawer__label" for="llm-searxng-url">
-					{{ t('llmchat', 'SearXNG URL') }}
+					{{ t('llmchat', 'SearXNG URL (for web search)') }}
 				</label>
 				<input
 					id="llm-searxng-url"
@@ -86,7 +77,7 @@
 					placeholder="https://searx.example.org"
 					@blur="saveSearxngUrl">
 				<p class="drawer__hint">
-					{{ t('llmchat', 'The instance needs "formats: [html, json]" in its settings.yml.') }}
+					{{ searxngHint }}
 				</p>
 			</div>
 
@@ -134,10 +125,6 @@ export default {
 		return {
 			archiveFolder: this.config?.settings?.archive_folder ?? '/LLM Chats',
 			searxngUrl: this.config?.settings?.searxng_url ?? '',
-			searchProviderOptions: [
-				{ id: 'duckduckgo', label: 'DuckDuckGo (entities only)' },
-				{ id: 'searxng', label: 'SearXNG (self-hosted)' },
-			],
 		}
 	},
 
@@ -158,17 +145,10 @@ export default {
 			},
 		},
 
-		searchProvider: {
-			get() {
-				const current = this.config.settings.search_provider
-				return this.searchProviderOptions.find((o) => o.id === current)
-					?? this.searchProviderOptions[0]
-			},
-			set(option) {
-				if (option?.id) {
-					this.save('search_provider', option.id)
-				}
-			},
+		searxngHint() {
+			return this.config.settings.searxng_url === ''
+				? this.t('llmchat', 'Not set — the web search tool will report that it is unconfigured. Fetching a URL the user provides still works.')
+				: this.t('llmchat', 'The instance needs "formats: [html, json]" in its settings.yml.')
 		},
 	},
 
