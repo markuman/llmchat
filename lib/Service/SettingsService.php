@@ -19,6 +19,8 @@ class SettingsService {
 		'markdown_rendering' => true,
 		'show_reasoning' => true,
 		'default_profile_id' => null,
+		'search_provider' => 'duckduckgo',
+		'searxng_url' => '',
 	];
 
 	public function __construct(
@@ -73,8 +75,27 @@ class SettingsService {
 			'compact_mode', 'markdown_rendering', 'show_reasoning' => $value ? '1' : '0',
 			'archive_folder' => $this->normalizeFolder((string)$value),
 			'archive_target' => in_array($value, ['files'], true) ? (string)$value : 'files',
+			'search_provider' => in_array($value, ['duckduckgo', 'searxng'], true) ? (string)$value : 'duckduckgo',
+			'searxng_url' => $this->normalizeSearxngUrl((string)$value),
 			default => (string)$value,
 		};
+	}
+
+	private function normalizeSearxngUrl(string $url): string {
+		$url = trim($url);
+		if ($url === '') {
+			return '';
+		}
+
+		$parts = parse_url($url);
+		$scheme = strtolower((string)($parts['scheme'] ?? ''));
+		if ($parts === false || !isset($parts['host']) || ($scheme !== 'http' && $scheme !== 'https')) {
+			// silently storing garbage would surface as a confusing search
+			// error much later; empty means "not configured" and fails clearly
+			return '';
+		}
+
+		return rtrim($url, '/');
 	}
 
 	private function normalizeFolder(string $folder): string {

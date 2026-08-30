@@ -174,6 +174,13 @@
 				{{ t('llmchat', 'Off actually disables thinking on backends that support it, which saves tokens. Not every model can be told to stop.') }}
 			</p>
 
+			<NcCheckboxRadioSwitch v-model="form.tools" type="switch">
+				{{ t('llmchat', 'Web tools (search, fetch, date/time)') }}
+			</NcCheckboxRadioSwitch>
+			<p class="form__hint">
+				{{ t('llmchat', 'The model can search the web and fetch pages. Queries and URLs go through this Nextcloud server; page content is sent to the model. Needs a model with tool support.') }}
+			</p>
+
 			<div class="form__actions">
 				<NcButton :disabled="!canSubmit || saving" variant="primary" type="submit">
 					{{ form.id ? t('llmchat', 'Save') : t('llmchat', 'Create') }}
@@ -220,6 +227,7 @@ function emptyForm(connectionId = null) {
 		max_tokens: '',
 		streaming: true,
 		reasoning: true,
+		tools: false,
 	}
 }
 
@@ -355,6 +363,7 @@ export default {
 				// value here, and `undefined` would leave the switch unbound
 				streaming: profile.streaming ?? true,
 				reasoning: profile.reasoning ?? true,
+				tools: profile.tools ?? false,
 			}
 			this.$nextTick(this.autogrow)
 		},
@@ -386,6 +395,7 @@ export default {
 					max_tokens: this.form.max_tokens === '' ? null : Number(this.form.max_tokens),
 					streaming: this.form.streaming,
 					reasoning: this.form.reasoning,
+					tools: this.form.tools,
 				}
 
 				if (this.form.id) {
@@ -482,6 +492,7 @@ export default {
 					max_tokens: p.max_tokens,
 					streaming: p.streaming,
 					reasoning: p.reasoning,
+					tools: p.tools,
 				})),
 			}
 

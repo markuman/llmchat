@@ -64,6 +64,32 @@
 				{{ t('llmchat', 'Display only — the tokens are still generated. Turn reasoning off in the profile to actually save them.') }}
 			</p>
 
+			<NcSelect
+				v-model="searchProvider"
+				:input-label="t('llmchat', 'Web search provider')"
+				:options="searchProviderOptions"
+				:clearable="false"
+				label="label" />
+			<p v-if="config.settings.search_provider === 'duckduckgo'" class="drawer__hint">
+				{{ t('llmchat', 'DuckDuckGo instant answers only — needs no setup, but results are thin. A SearXNG instance gives real search results.') }}
+			</p>
+
+			<div v-if="config.settings.search_provider === 'searxng'" class="drawer__field">
+				<label class="drawer__label" for="llm-searxng-url">
+					{{ t('llmchat', 'SearXNG URL') }}
+				</label>
+				<input
+					id="llm-searxng-url"
+					v-model="searxngUrl"
+					type="url"
+					class="drawer__input"
+					placeholder="https://searx.example.org"
+					@blur="saveSearxngUrl">
+				<p class="drawer__hint">
+					{{ t('llmchat', 'The instance needs "formats: [html, json]" in its settings.yml.') }}
+				</p>
+			</div>
+
 			<NcButton wide @click="$emit('open-manager')">
 				<template #icon>
 					<Tune :size="20" />
@@ -107,6 +133,11 @@ export default {
 	data() {
 		return {
 			archiveFolder: this.config?.settings?.archive_folder ?? '/LLM Chats',
+			searxngUrl: this.config?.settings?.searxng_url ?? '',
+			searchProviderOptions: [
+				{ id: 'duckduckgo', label: 'DuckDuckGo (instant answers)' },
+				{ id: 'searxng', label: 'SearXNG (self-hosted)' },
+			],
 		}
 	},
 
@@ -126,10 +157,24 @@ export default {
 				}
 			},
 		},
+
+		searchProvider: {
+			get() {
+				const current = this.config.settings.search_provider
+				return this.searchProviderOptions.find((o) => o.id === current)
+					?? this.searchProviderOptions[0]
+			},
+			set(option) {
+				if (option?.id) {
+					this.save('search_provider', option.id)
+				}
+			},
+		},
 	},
 
 	created() {
 		this.archiveFolder = this.config.settings.archive_folder
+		this.searxngUrl = this.config.settings.searxng_url
 	},
 
 	methods: {
@@ -149,6 +194,20 @@ export default {
 
 			await this.save('archive_folder', folder)
 			this.archiveFolder = this.config.settings.archive_folder
+		},
+
+		async saveSearxngUrl() {
+			const url = this.searxngUrl.trim()
+			if (url === this.config.settings.searxng_url) {
+				return
+			}
+
+			await this.save('searxng_url', url)
+			// the backend clears invalid urls; reflect what was actually stored
+			this.searxngUrl = this.config.settings.searxng_url
+			if (url !== '' && this.searxngUrl === '') {
+				showError(this.t('llmchat', 'Invalid URL — must be absolute http(s).'))
+			}
 		},
 
 		async pickFolder() {

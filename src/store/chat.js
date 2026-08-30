@@ -15,6 +15,7 @@ import {
 	splitThink,
 	streamCompletion,
 } from '../services/llm.js'
+import { TOOL_DEFINITIONS, executeTool } from '../services/tools.js'
 import { useConfigStore } from './config.js'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -283,27 +284,21 @@ export const useChatStore = defineStore('chat', {
 				.map((m) => ({ role: m.role, content: m.content }))
 
 			try {
-				const result = await streamCompletion({
+				const result = await this.runAgentLoop({
 					connection,
 					profile,
-					messages: history,
-					signal: this.controller.signal,
-					onDelta: ({ content, reasoning }) => {
-						const target = this.messages.find((m) => m.id === placeholder.id)
-						if (!target) {
-							return
-						}
-						target.content += content
-						target.reasoning += reasoning
-					},
+					history,
+					placeholder,
 				})
 
 				// backends that use inline <think> instead of a separate field
 				const split = splitThink(result.content)
+				const target = this.messages.find((m) => m.id === placeholder.id)
 				const final = {
 					...placeholder,
 					content: split.content || result.content,
-					reasoning: [placeholder.reasoning, split.reasoning].filter(Boolean).join('\n').trim(),
+					reasoning: [target?.reasoning ?? '', split.reasoning].filter(Boolean).join('\n').trim(),
+					tool_log: target?.tool_log?.length ? target.tool_log : undefined,
 					usage: result.usage ?? null,
 					pending: false,
 				}
@@ -338,6 +333,105 @@ export const useChatStore = defineStore('chat', {
 				this.generating = false
 				this.controller = null
 			}
+		},
+
+		/**
+		 * Mini agent loop.
+		 *
+		 * Tool rounds run on an *ephemeral* copy of the history: the
+		 * assistant's tool_calls messages and the tool results never enter
+		 * the persisted chat. Only the final answer does — the user's context
+		 * stays clean, and the next completion does not re-send kilobytes of
+		 * fetched page text. What happened is kept in `tool_log` for display.
+		 *
+		 * Bounded at MAX_TOOL_ROUNDS: a model that keeps calling tools gets
+		 * one final round without tools instead of looping forever.
+		 *
+		 * @return {Promise<{content: string, usage: object|null}>} final completion
+		 */
+		async runAgentLoop({ connection, profile, history, placeholder }) {
+			const MAX_TOOL_ROUNDS = 3
+
+			const onDelta = ({ content, reasoning }) => {
+				const target = this.messages.find((m) => m.id === placeholder.id)
+				if (!target) {
+					return
+				}
+				target.content += content
+				target.reasoning += reasoning
+			}
+
+			const toolsEnabled = profile.tools === true
+
+			// ephemeral working copy — never persisted
+			const loopMessages = [...history]
+			let result = null
+
+			for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+				const lastRound = round === MAX_TOOL_ROUNDS
+				const tools = toolsEnabled && !lastRound ? TOOL_DEFINITIONS : undefined
+
+				result = await streamCompletion({
+					connection,
+					profile,
+					messages: loopMessages,
+					tools,
+					signal: this.controller.signal,
+					onDelta,
+				})
+
+				if (!result.toolCalls?.length) {
+					break
+				}
+
+				// text produced alongside tool calls is intermediate thinking
+				// aloud — drop it from the UI so only the final answer remains
+				const target = this.messages.find((m) => m.id === placeholder.id)
+				if (target) {
+					target.content = ''
+				}
+
+				// some backends (Ollama) omit call ids; the tool message's
+				// tool_call_id must match the assistant turn, so fill them in
+				// *before* both sides reference them
+				result.toolCalls.forEach((call, i) => {
+					if (!call.id) {
+						call.id = `call_${round}_${i}`
+					}
+				})
+
+				loopMessages.push({
+					role: 'assistant',
+					content: result.content || null,
+					tool_calls: result.toolCalls,
+				})
+
+				for (const call of result.toolCalls) {
+					if (this.controller?.signal.aborted) {
+						throw new DOMException('aborted', 'AbortError')
+					}
+
+					const { content, summary } = await executeTool(call)
+
+					if (target) {
+						if (!target.tool_log) {
+							target.tool_log = []
+						}
+						target.tool_log.push({
+							name: call.function.name,
+							summary,
+						})
+					}
+
+					loopMessages.push({
+						role: 'tool',
+						tool_call_id: call.id,
+						content,
+					})
+				}
+			}
+
+			return result
 		},
 
 		/**

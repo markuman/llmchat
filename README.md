@@ -1,8 +1,12 @@
 # LLM Chat for Nextcloud
 
 A chat interface for large language models where **the browser talks directly to the LLM backend**.
-Nextcloud stores configuration and archived chats — it is never a proxy and never sees prompts or
-responses.
+Nextcloud stores configuration and archived chats — it is never a proxy for the LLM traffic and
+never sees prompts or responses.
+
+One deliberate exception: the optional **web tools** (see below). Browsers cannot fetch foreign
+origins, so when a profile has tools enabled, search queries and fetched URLs go through the
+Nextcloud server. Prompts and responses still do not.
 
 The point: because the request originates in the browser, `localhost` resolves from the *user's*
 machine. Your Nextcloud can sit in a datacenter and still talk to an Ollama running on your laptop.
@@ -107,6 +111,39 @@ This is deliberate — it is the reason the archive function exists. Archive any
 Archived chats land in `{folder}/{YYYY}/{YYYY-MM-DD}-{slug}.md` with YAML front matter, default
 folder `/LLM Chats`.
 
+## Web tools (optional, per profile)
+
+Profiles can enable **web tools**: the model gets `web_search`, `web_fetch` and
+`get_current_datetime` as functions and runs a small agent loop (at most 3 tool rounds, then a
+final answer without tools). Requires a model trained for tool calling — small or older models
+will either ignore the tools or produce garbage.
+
+How it works, and what it changes:
+
+* **The Nextcloud server performs the network access.** Browsers cannot read foreign origins
+  (CORS), so `web_search` and `web_fetch` are endpoints of this app. Search queries and fetched
+  URLs are therefore visible to the server — this is the one exception to the "server sees
+  nothing" principle, and it is why tools are off by default and opt-in per profile.
+* **Tool rounds are ephemeral.** Fetched page content is fed to the model but never stored in the
+  chat history — the next message does not re-send kilobytes of scraped text. A collapsed
+  "tool calls" log on the answer shows what happened.
+* `get_current_datetime` never touches the server: it answers locally with the browser's clock
+  and timezone.
+* Search providers: **DuckDuckGo instant answers** (default, zero setup, thin results) or a
+  self-hosted **SearXNG** instance (real results; needs `formats: [html, json]` in its
+  `settings.yml`). Configure in the app settings.
+* The fetch endpoint is intentionally locked down: http/https only, standard ports only, no
+  credentials in URLs, SSRF protection via Nextcloud's HTTP client (DNS pinning, local address
+  blocking, re-validation on every redirect), 2 MB response cap, text extraction only — the
+  fetched document is parsed as data and never executed or rendered. Rate limited per user.
+  If your SearXNG runs on a LAN address, the admin must set `allow_local_remote_servers`.
+* Outgoing fetches rotate the User-Agent (Safari/macOS, Edge/Windows, Firefox/Linux) —
+  a UA of "Nextcloud-Server-Crawler" hits bot walls instantly.
+
+**Privacy note:** the search query is written by the *model*, derived from your prompt. It can
+contain things you did not intend to send to a search engine. That is inherent to the feature,
+not fixable by this app.
+
 ## Security
 
 * API keys are encrypted at rest with `\OCP\Security\ICrypto`. **The encryption key still lives on
@@ -115,11 +152,13 @@ folder `/LLM Chats`.
 * Keys are never returned by the CRUD API — only `has_key: true`. They *are* delivered to the browser
   of the owning user, because that is where the request is made. Every user only ever sees their own
   key, which is exactly why the app has no shared admin keys.
-* No LLM data ever reaches the Nextcloud logs, because the server never sees it.
+* No LLM prompts or responses ever reach the Nextcloud logs, because the server never sees them.
+  With web tools enabled, failed search/fetch attempts are logged at info level (without page
+  content).
 
 ## What this app does not do (v1)
 
-File uploads, RAG, MCP/tool calling, admin-managed shared keys, a server-side proxy, image
+File uploads, RAG, MCP, admin-managed shared keys, a server-side proxy for LLM traffic, image
 generation, TTS/STT. These are out of scope on purpose, not forgotten.
 
 ## Development

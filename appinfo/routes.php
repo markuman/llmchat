@@ -34,6 +34,12 @@ return [
 		// archive
 		['name' => 'archive#store', 'url' => '/api/v1/archive', 'verb' => 'POST'],
 
+		// agent tools — POST on purpose, even the semantically "read-only"
+		// search: query/url in the body instead of the access log, CSRF check
+		// applies, no cacheable GET with attacker-controlled parameters
+		['name' => 'tools#search', 'url' => '/api/v1/tools/search', 'verb' => 'POST'],
+		['name' => 'tools#fetch', 'url' => '/api/v1/tools/fetch', 'verb' => 'POST'],
+
 		// settings
 		['name' => 'settings#show', 'url' => '/api/v1/settings', 'verb' => 'GET'],
 		['name' => 'settings#update', 'url' => '/api/v1/settings', 'verb' => 'PUT'],

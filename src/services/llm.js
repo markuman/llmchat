@@ -208,7 +208,7 @@ export async function testConnection(connection) {
 	}
 }
 
-function buildPayload({ profile, messages, stream }) {
+function buildPayload({ profile, messages, stream, tools }) {
 	const payload = {
 		model: profile.model,
 		messages,
@@ -239,7 +239,45 @@ function buildPayload({ profile, messages, stream }) {
 		payload.reasoning = { enabled: false }
 	}
 
+	// No tool_choice on purpose: Ollama's /v1 shim does not support it and
+	// "auto" is the default everywhere when tools are present.
+	if (tools?.length) {
+		payload.tools = tools
+	}
+
 	return payload
+}
+
+/**
+ * Accumulates streamed tool-call deltas.
+ *
+ * Per OpenAI's spec, `index` is the only field guaranteed on every chunk;
+ * id/name arrive once, `arguments` come as appendable fragments that can
+ * split mid-JSON or mid-character. Some backends fragment even the name, so
+ * everything string-ish is appended, never assigned. Ollama happens to send
+ * calls atomically — this handles that as the trivial case.
+ */
+function accumulateToolCalls(target, deltas) {
+	for (const delta of deltas) {
+		const index = delta.index ?? 0
+		if (!target[index]) {
+			target[index] = { id: '', type: 'function', function: { name: '', arguments: '' } }
+		}
+		const call = target[index]
+
+		if (delta.id) {
+			call.id = delta.id
+		}
+		if (delta.type) {
+			call.type = delta.type
+		}
+		if (delta.function?.name) {
+			call.function.name += delta.function.name
+		}
+		if (delta.function?.arguments) {
+			call.function.arguments += delta.function.arguments
+		}
+	}
 }
 
 /**
@@ -278,17 +316,18 @@ function deltaOf(chunk) {
 
 /**
  * Streams a completion. Calls onDelta for every token and resolves with the
- * full result.
+ * full result, including any tool calls the model requested.
  *
  * @param {object} options options
  * @param {object} options.connection connection record
  * @param {object} options.profile profile record
  * @param {Array} options.messages chat messages, oldest first
+ * @param {Array} [options.tools] OpenAI-compatible tool definitions
  * @param {Function} options.onDelta called with ({content, reasoning})
  * @param {AbortSignal} options.signal abort signal for the stop button
- * @return {Promise<{content: string, reasoning: string, usage: object|null}>} completion
+ * @return {Promise<{content: string, reasoning: string, usage: object|null, toolCalls: Array}>} completion
  */
-export async function streamCompletion({ connection, profile, messages, onDelta, signal }) {
+export async function streamCompletion({ connection, profile, messages, tools, onDelta, signal }) {
 	const stream = profile.streaming !== false
 	let response
 
@@ -296,7 +335,7 @@ export async function streamCompletion({ connection, profile, messages, onDelta,
 		response = await fetch(chatUrl(connection), {
 			method: 'POST',
 			headers: headers(connection),
-			body: JSON.stringify(buildPayload({ profile, messages, stream })),
+			body: JSON.stringify(buildPayload({ profile, messages, stream, tools })),
 			signal,
 		})
 	} catch (error) {
@@ -312,12 +351,13 @@ export async function streamCompletion({ connection, profile, messages, onDelta,
 		const message = payload?.choices?.[0]?.message ?? {}
 		const content = message.content ?? ''
 		const reasoning = message.reasoning_content ?? message.reasoning ?? ''
+		const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : []
 
 		if (content) {
 			onDelta?.({ content, reasoning })
 		}
 
-		return { content, reasoning, usage: payload?.usage ?? null }
+		return { content, reasoning, usage: payload?.usage ?? null, toolCalls }
 	}
 
 	const reader = response.body.getReader()
@@ -327,6 +367,8 @@ export async function streamCompletion({ connection, profile, messages, onDelta,
 	let content = ''
 	let reasoning = ''
 	let usage = null
+	// sparse, indexed by tool_calls[].index (spec: the only guaranteed field)
+	const toolCallsAcc = []
 
 	try {
 		for (;;) {
@@ -359,6 +401,11 @@ export async function streamCompletion({ connection, profile, messages, onDelta,
 						usage = chunk.usage
 					}
 
+					const rawDelta = chunk?.choices?.[0]?.delta ?? {}
+					if (Array.isArray(rawDelta.tool_calls)) {
+						accumulateToolCalls(toolCallsAcc, rawDelta.tool_calls)
+					}
+
 					const delta = deltaOf(chunk)
 					if (delta.content || delta.reasoning) {
 						content += delta.content
@@ -372,7 +419,12 @@ export async function streamCompletion({ connection, profile, messages, onDelta,
 		reader.releaseLock?.()
 	}
 
-	return { content, reasoning, usage }
+	// arguments may have arrived in fragments — only now is parsing safe.
+	// calls with unparseable arguments are kept: the executor answers them
+	// with an error message the model can react to.
+	const toolCalls = toolCallsAcc.filter(Boolean).filter((c) => c.function.name !== '')
+
+	return { content, reasoning, usage, toolCalls }
 }
 
 /**

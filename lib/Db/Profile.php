@@ -31,6 +31,8 @@ use OCP\AppFramework\Db\Entity;
  * @method void setStreaming(bool $streaming)
  * @method bool getReasoning()
  * @method void setReasoning(bool $reasoning)
+ * @method bool getTools()
+ * @method void setTools(bool $tools)
  * @method int getSortOrder()
  * @method void setSortOrder(int $sortOrder)
  */
@@ -46,6 +48,8 @@ class Profile extends Entity implements \JsonSerializable {
 	protected bool $streaming = true;
 	/** true = leave the backend default alone, false = actively switch thinking off */
 	protected bool $reasoning = true;
+	/** opt-in: web tools send queries/URLs through the Nextcloud server */
+	protected bool $tools = false;
 	protected int $sortOrder = 0;
 
 	public function __construct() {
@@ -59,6 +63,7 @@ class Profile extends Entity implements \JsonSerializable {
 		$this->addType('isDefault', 'boolean');
 		$this->addType('streaming', 'boolean');
 		$this->addType('reasoning', 'boolean');
+		$this->addType('tools', 'boolean');
 		$this->addType('sortOrder', 'integer');
 	}
 
@@ -74,6 +79,7 @@ class Profile extends Entity implements \JsonSerializable {
 			'is_default' => $this->getIsDefault(),
 			'streaming' => $this->getStreaming(),
 			'reasoning' => $this->getReasoning(),
+			'tools' => $this->getTools(),
 			'sort_order' => $this->getSortOrder(),
 		];
 	}
@@ -91,6 +97,7 @@ class Profile extends Entity implements \JsonSerializable {
 			'max_tokens' => $this->getMaxTokens(),
 			'streaming' => $this->getStreaming(),
 			'reasoning' => $this->getReasoning(),
+			'tools' => $this->getTools(),
 		];
 	}
 }

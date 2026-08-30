@@ -54,6 +54,18 @@
 		</div>
 
 		<template v-else>
+			<!-- what the agent loop did, without polluting the chat context -->
+			<details v-if="message.tool_log?.length" class="message__tools">
+				<summary>
+					{{ n('llmchat', '%n tool call', '%n tool calls', message.tool_log.length) }}
+				</summary>
+				<ul>
+					<li v-for="(entry, i) in message.tool_log" :key="i">
+						<code>{{ entry.name }}</code> — {{ entry.summary }}
+					</li>
+				</ul>
+			</details>
+
 			<!-- reasoning, collapsed by default (spec §11) -->
 			<details v-if="showReasoning" class="message__reasoning">
 				<summary>{{ t('llmchat', 'Reasoning') }}</summary>
@@ -213,13 +225,28 @@ export default {
 	opacity: 1;
 }
 
-.message__reasoning {
+.message__reasoning,
+.message__tools {
 	margin-bottom: 8px;
 	padding: 6px 10px;
 	border-radius: var(--border-radius);
 	background-color: var(--color-background-dark);
 	color: var(--color-text-maxcontrast);
 	font-size: 0.88em;
+}
+
+.message__tools summary {
+	cursor: pointer;
+}
+
+.message__tools ul {
+	margin: 6px 0 0;
+	padding-inline-start: 1.2em;
+	list-style: disc;
+}
+
+.message__tools li {
+	overflow-wrap: anywhere;
 }
 
 .message__reasoning summary {

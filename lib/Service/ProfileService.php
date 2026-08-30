@@ -50,6 +50,7 @@ class ProfileService {
 		$profile->setMaxTokens($this->nullableInt($data['max_tokens'] ?? null));
 		$profile->setStreaming((bool)($data['streaming'] ?? true));
 		$profile->setReasoning((bool)($data['reasoning'] ?? true));
+		$profile->setTools((bool)($data['tools'] ?? false));
 		$profile->setSortOrder($this->mapper->maxSortOrder($userId) + 1);
 
 		// the very first profile is the default, no matter what the client says
@@ -93,6 +94,9 @@ class ProfileService {
 		if (array_key_exists('reasoning', $data)) {
 			$profile->setReasoning((bool)$data['reasoning']);
 		}
+		if (array_key_exists('tools', $data)) {
+			$profile->setTools((bool)$data['tools']);
+		}
 
 		$makeDefault = array_key_exists('is_default', $data) && (bool)$data['is_default'];
 		if ($makeDefault) {
@@ -125,6 +129,7 @@ class ProfileService {
 		$copy->setMaxTokens($source->getMaxTokens());
 		$copy->setStreaming($source->getStreaming());
 		$copy->setReasoning($source->getReasoning());
+		$copy->setTools($source->getTools());
 		$copy->setIsDefault(false);
 		$copy->setSortOrder($source->getSortOrder() + 1);
 
@@ -192,6 +197,7 @@ class ProfileService {
 				'max_tokens' => $raw['max_tokens'] ?? null,
 				'streaming' => $raw['streaming'] ?? true,
 				'reasoning' => $raw['reasoning'] ?? true,
+				'tools' => $raw['tools'] ?? false,
 				'is_default' => false,
 			]);
 		}
