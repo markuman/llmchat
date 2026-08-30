@@ -31,8 +31,8 @@ use OCP\AppFramework\Db\Entity;
  * @method void setStreaming(bool $streaming)
  * @method bool getReasoning()
  * @method void setReasoning(bool $reasoning)
- * @method bool getTools()
- * @method void setTools(bool $tools)
+ * @method string getEnabledTools()
+ * @method void setEnabledTools(string $enabledTools)
  * @method int getSortOrder()
  * @method void setSortOrder(int $sortOrder)
  */
@@ -48,8 +48,11 @@ class Profile extends Entity implements \JsonSerializable {
 	protected bool $streaming = true;
 	/** true = leave the backend default alone, false = actively switch thinking off */
 	protected bool $reasoning = true;
-	/** opt-in: web tools send queries/URLs through the Nextcloud server */
-	protected bool $tools = false;
+	/**
+	 * Comma separated allowlist of tool ids, empty means no tools.
+	 * Stored flat, exposed as an array — see TOOL_IDS for the valid values.
+	 */
+	protected string $enabledTools = '';
 	protected int $sortOrder = 0;
 
 	public function __construct() {
@@ -63,7 +66,7 @@ class Profile extends Entity implements \JsonSerializable {
 		$this->addType('isDefault', 'boolean');
 		$this->addType('streaming', 'boolean');
 		$this->addType('reasoning', 'boolean');
-		$this->addType('tools', 'boolean');
+		$this->addType('enabledTools', 'string');
 		$this->addType('sortOrder', 'integer');
 	}
 
@@ -79,9 +82,21 @@ class Profile extends Entity implements \JsonSerializable {
 			'is_default' => $this->getIsDefault(),
 			'streaming' => $this->getStreaming(),
 			'reasoning' => $this->getReasoning(),
-			'tools' => $this->getTools(),
+			'enabled_tools' => $this->getEnabledToolsArray(),
 			'sort_order' => $this->getSortOrder(),
 		];
+	}
+
+	/**
+	 * @return string[]
+	 */
+	public function getEnabledToolsArray(): array {
+		$raw = trim($this->getEnabledTools());
+		if ($raw === '') {
+			return [];
+		}
+
+		return array_values(array_filter(array_map('trim', explode(',', $raw))));
 	}
 
 	/**
@@ -97,7 +112,7 @@ class Profile extends Entity implements \JsonSerializable {
 			'max_tokens' => $this->getMaxTokens(),
 			'streaming' => $this->getStreaming(),
 			'reasoning' => $this->getReasoning(),
-			'tools' => $this->getTools(),
+			'enabled_tools' => $this->getEnabledToolsArray(),
 		];
 	}
 }

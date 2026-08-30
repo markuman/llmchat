@@ -10,9 +10,25 @@
 import axios from '@nextcloud/axios'
 import { generateUrl } from '@nextcloud/router'
 
-/** OpenAI-compatible tool definitions sent with the request. */
-export const TOOL_DEFINITIONS = [
-	{
+/**
+ * Tool ids as stored per profile. Kept in sync with ProfileService::TOOL_IDS.
+ *
+ * They are separately selectable because they differ in what they cost:
+ * `datetime` never leaves the browser, the two web tools route through the
+ * Nextcloud server.
+ */
+export const TOOL_IDS = ['datetime', 'web_search', 'web_fetch']
+
+/** Maps a tool id to the function name the model sees. */
+const FUNCTION_NAMES = {
+	datetime: 'get_current_datetime',
+	web_search: 'web_search',
+	web_fetch: 'web_fetch',
+}
+
+/** OpenAI-compatible tool definitions, keyed by tool id. */
+const DEFINITIONS = {
+	datetime: {
 		type: 'function',
 		function: {
 			name: 'get_current_datetime',
@@ -21,7 +37,7 @@ export const TOOL_DEFINITIONS = [
 			parameters: { type: 'object', properties: {}, required: [] },
 		},
 	},
-	{
+	web_search: {
 		type: 'function',
 		function: {
 			name: 'web_search',
@@ -39,7 +55,7 @@ export const TOOL_DEFINITIONS = [
 			},
 		},
 	},
-	{
+	web_fetch: {
 		type: 'function',
 		function: {
 			name: 'web_fetch',
@@ -57,7 +73,32 @@ export const TOOL_DEFINITIONS = [
 			},
 		},
 	},
-]
+}
+
+/**
+ * Definitions for the tools a profile allows, in a stable order.
+ *
+ * @param {string[]} enabled tool ids from the profile
+ * @return {Array} OpenAI-compatible tool definitions
+ */
+export function toolDefinitionsFor(enabled) {
+	if (!Array.isArray(enabled) || enabled.length === 0) {
+		return []
+	}
+
+	return TOOL_IDS.filter((id) => enabled.includes(id)).map((id) => DEFINITIONS[id])
+}
+
+/**
+ * Reverse lookup: the model answers with function names, the allowlist holds
+ * tool ids. Only used to reject calls a profile does not allow.
+ *
+ * @param {string} functionName name from the tool call
+ * @return {string|null} tool id
+ */
+function toolIdOf(functionName) {
+	return Object.keys(FUNCTION_NAMES).find((id) => FUNCTION_NAMES[id] === functionName) ?? null
+}
 
 function toolUrl(path) {
 	return generateUrl(`/apps/llmchat/api/v1/tools${path}`)
@@ -81,10 +122,21 @@ function getCurrentDatetime() {
  * better than the loop handles an exception.
  *
  * @param {object} call accumulated tool call {id, function: {name, arguments}}
+ * @param {string[]} enabled tool ids the profile allows
  * @return {Promise<{content: string, summary: string}>} result + short UI label
  */
-export async function executeTool(call) {
+export async function executeTool(call, enabled = []) {
 	const name = call.function?.name ?? ''
+
+	// models do invent tools they were never offered; refuse rather than
+	// dispatch on a name that was not in this profile's allowlist
+	const id = toolIdOf(name)
+	if (id === null || !enabled.includes(id)) {
+		return {
+			content: JSON.stringify({ error: `tool "${name}" is not available` }),
+			summary: `${name}: not available`,
+		}
+	}
 
 	let args = {}
 	try {

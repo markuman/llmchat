@@ -174,11 +174,33 @@
 				{{ t('llmchat', 'Off actually disables thinking on backends that support it, which saves tokens. Not every model can be told to stop.') }}
 			</p>
 
-			<NcCheckboxRadioSwitch v-model="form.tools" type="switch">
-				{{ t('llmchat', 'Web tools (search, fetch, date/time)') }}
+			<!--
+				Individually selectable, not one switch: datetime is answered
+				in the browser and costs nothing privacy-wise, the web tools
+				route queries and URLs through this server.
+			-->
+			<label class="form__label">{{ t('llmchat', 'Tools') }}</label>
+
+			<NcCheckboxRadioSwitch
+				:model-value="form.enabled_tools.includes('datetime')"
+				@update:model-value="toggleTool('datetime', $event)">
+				{{ t('llmchat', 'Date & time — answered locally by your browser') }}
 			</NcCheckboxRadioSwitch>
+
+			<NcCheckboxRadioSwitch
+				:model-value="form.enabled_tools.includes('web_search')"
+				@update:model-value="toggleTool('web_search', $event)">
+				{{ t('llmchat', 'Web search — queries go through this server') }}
+			</NcCheckboxRadioSwitch>
+
+			<NcCheckboxRadioSwitch
+				:model-value="form.enabled_tools.includes('web_fetch')"
+				@update:model-value="toggleTool('web_fetch', $event)">
+				{{ t('llmchat', 'Fetch web pages — URLs go through this server') }}
+			</NcCheckboxRadioSwitch>
+
 			<p class="form__hint">
-				{{ t('llmchat', 'The model can search the web and fetch pages. Queries and URLs go through this Nextcloud server; page content is sent to the model. Needs a model with tool support.') }}
+				{{ toolsHint }}
 			</p>
 
 			<div class="form__actions">
@@ -227,7 +249,7 @@ function emptyForm(connectionId = null) {
 		max_tokens: '',
 		streaming: true,
 		reasoning: true,
-		tools: false,
+		enabled_tools: [],
 	}
 }
 
@@ -299,6 +321,18 @@ export default {
 				&& this.form.model.trim() !== ''
 				&& Boolean(this.form.connection_id)
 		},
+
+		toolsHint() {
+			if (this.form.enabled_tools.length === 0) {
+				return this.t('llmchat', 'No tools. The model answers from what it was trained on.')
+			}
+
+			const usesWeb = this.form.enabled_tools.some((id) => id.startsWith('web_'))
+
+			return usesWeb
+				? this.t('llmchat', 'Requires a model that supports tool calling. Web tools route through this Nextcloud server, and fetched content is sent to the model.')
+				: this.t('llmchat', 'Requires a model that supports tool calling. Nothing leaves your browser with this selection.')
+		},
 	},
 
 	watch: {
@@ -363,9 +397,20 @@ export default {
 				// value here, and `undefined` would leave the switch unbound
 				streaming: profile.streaming ?? true,
 				reasoning: profile.reasoning ?? true,
-				tools: profile.tools ?? false,
+				// copied, not referenced: toggling must not mutate the store
+				enabled_tools: [...(profile.enabled_tools ?? [])],
 			}
 			this.$nextTick(this.autogrow)
+		},
+
+		toggleTool(id, enabled) {
+			const current = new Set(this.form.enabled_tools)
+			if (enabled) {
+				current.add(id)
+			} else {
+				current.delete(id)
+			}
+			this.form.enabled_tools = [...current]
 		},
 
 		reset() {
@@ -395,7 +440,7 @@ export default {
 					max_tokens: this.form.max_tokens === '' ? null : Number(this.form.max_tokens),
 					streaming: this.form.streaming,
 					reasoning: this.form.reasoning,
-					tools: this.form.tools,
+					enabled_tools: this.form.enabled_tools,
 				}
 
 				if (this.form.id) {
@@ -492,7 +537,7 @@ export default {
 					max_tokens: p.max_tokens,
 					streaming: p.streaming,
 					reasoning: p.reasoning,
-					tools: p.tools,
+					enabled_tools: p.enabled_tools,
 				})),
 			}
 

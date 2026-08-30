@@ -5,8 +5,9 @@ Nextcloud stores configuration and archived chats — it is never a proxy for th
 never sees prompts or responses.
 
 One deliberate exception: the optional **web tools** (see below). Browsers cannot fetch foreign
-origins, so when a profile has tools enabled, search queries and fetched URLs go through the
-Nextcloud server. Prompts and responses still do not.
+origins, so when a profile enables them, search queries and fetched URLs go through the Nextcloud
+server. Prompts and responses still do not. The date/time tool is answered entirely in the browser
+and can be enabled on its own.
 
 The point: because the request originates in the browser, `localhost` resolves from the *user's*
 machine. Your Nextcloud can sit in a datacenter and still talk to an Ollama running on your laptop.
@@ -111,24 +112,32 @@ This is deliberate — it is the reason the archive function exists. Archive any
 Archived chats land in `{folder}/{YYYY}/{YYYY-MM-DD}-{slug}.md` with YAML front matter, default
 folder `/LLM Chats`.
 
-## Web tools (optional, per profile)
+## Tools (optional, per profile)
 
-Profiles can enable **web tools**: the model gets `web_search`, `web_fetch` and
-`get_current_datetime` as functions and runs a small agent loop (at most 3 tool rounds, then a
-final answer without tools). Requires a model trained for tool calling — small or older models
-will either ignore the tools or produce garbage.
+Each profile picks its tools individually — they differ in what they cost you:
+
+| tool | who executes it | what leaves the browser |
+|---|---|---|
+| `get_current_datetime` | the browser | nothing |
+| `web_search` | the Nextcloud server | the search query |
+| `web_fetch` | the Nextcloud server | the URL; the page text goes to the model |
+
+With at least one enabled, the model runs a small agent loop (at most 3 tool rounds, then a final
+answer without tools). Requires a model trained for tool calling — small or older models will
+either ignore the tools or produce garbage.
 
 How it works, and what it changes:
 
-* **The Nextcloud server performs the network access.** Browsers cannot read foreign origins
-  (CORS), so `web_search` and `web_fetch` are endpoints of this app. Search queries and fetched
-  URLs are therefore visible to the server — this is the one exception to the "server sees
-  nothing" principle, and it is why tools are off by default and opt-in per profile.
+* **The Nextcloud server performs the network access** for the two web tools. Browsers cannot read
+  foreign origins (CORS), so `web_search` and `web_fetch` are endpoints of this app. Search queries
+  and fetched URLs are therefore visible to the server — this is the one exception to the "server
+  sees nothing" principle, and it is why they are off by default and opt-in per profile. Enabling
+  only date/time keeps everything local.
+* The tool endpoints refuse to work unless the tool is enabled in at least one of your profiles,
+  and the browser rejects tool calls a profile does not allow — models do invent function names.
 * **Tool rounds are ephemeral.** Fetched page content is fed to the model but never stored in the
   chat history — the next message does not re-send kilobytes of scraped text. A collapsed
   "tool calls" log on the answer shows what happened.
-* `get_current_datetime` never touches the server: it answers locally with the browser's clock
-  and timezone.
 * Search providers: **DuckDuckGo instant answers** (default, zero setup, thin results) or a
   self-hosted **SearXNG** instance (real results; needs `formats: [html, json]` in its
   `settings.yml`). Configure in the app settings.

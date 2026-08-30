@@ -15,7 +15,7 @@ import {
 	splitThink,
 	streamCompletion,
 } from '../services/llm.js'
-import { TOOL_DEFINITIONS, executeTool } from '../services/tools.js'
+import { executeTool, toolDefinitionsFor } from '../services/tools.js'
 import { useConfigStore } from './config.js'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -361,7 +361,8 @@ export const useChatStore = defineStore('chat', {
 				target.reasoning += reasoning
 			}
 
-			const toolsEnabled = profile.tools === true
+			const enabledTools = Array.isArray(profile.enabled_tools) ? profile.enabled_tools : []
+			const definitions = toolDefinitionsFor(enabledTools)
 
 			// ephemeral working copy — never persisted
 			const loopMessages = [...history]
@@ -369,7 +370,7 @@ export const useChatStore = defineStore('chat', {
 
 			for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
 				const lastRound = round === MAX_TOOL_ROUNDS
-				const tools = toolsEnabled && !lastRound ? TOOL_DEFINITIONS : undefined
+				const tools = !lastRound && definitions.length > 0 ? definitions : undefined
 
 				result = await streamCompletion({
 					connection,
@@ -411,7 +412,7 @@ export const useChatStore = defineStore('chat', {
 						throw new DOMException('aborted', 'AbortError')
 					}
 
-					const { content, summary } = await executeTool(call)
+					const { content, summary } = await executeTool(call, enabledTools)
 
 					if (target) {
 						if (!target.tool_log) {

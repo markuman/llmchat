@@ -48,7 +48,7 @@ class ProfilesController extends ApiController {
 		?int $max_tokens = null,
 		bool $streaming = true,
 		bool $reasoning = true,
-		bool $tools = false,
+		array $enabled_tools = [],
 		bool $is_default = false,
 	): DataResponse {
 		return $this->handle(fn () => $this->service->create($this->uid(), [
@@ -60,7 +60,7 @@ class ProfilesController extends ApiController {
 			'max_tokens' => $max_tokens,
 			'streaming' => $streaming,
 			'reasoning' => $reasoning,
-			'tools' => $tools,
+			'enabled_tools' => $enabled_tools,
 			'is_default' => $is_default,
 		])->jsonSerialize());
 	}
@@ -76,23 +76,23 @@ class ProfilesController extends ApiController {
 		?string $model = null,
 		?bool $streaming = null,
 		?bool $reasoning = null,
-		?bool $tools = null,
 		?bool $is_default = null,
 	): DataResponse {
 		$data = [];
 		foreach (['name' => $name, 'connection_id' => $connection_id, 'model' => $model,
-			'streaming' => $streaming, 'reasoning' => $reasoning, 'tools' => $tools,
+			'streaming' => $streaming, 'reasoning' => $reasoning,
 			'is_default' => $is_default] as $key => $value) {
 			if ($value !== null) {
 				$data[$key] = $value;
 			}
 		}
 
-		// system_prompt, temperature and max_tokens are nullable *values*, so
-		// "not sent" has to stay distinguishable from "explicitly null" — which
-		// typed parameters cannot express. Read those straight off the request.
+		// system_prompt, temperature and max_tokens are nullable *values*, and
+		// enabled_tools has an empty array as a meaningful value, so "not sent"
+		// has to stay distinguishable from "explicitly empty" — which typed
+		// parameters cannot express. Read those straight off the request.
 		$sentinel = "\0absent";
-		foreach (['system_prompt', 'temperature', 'max_tokens'] as $key) {
+		foreach (['system_prompt', 'temperature', 'max_tokens', 'enabled_tools'] as $key) {
 			$value = $this->request->getParam($key, $sentinel);
 			if ($value !== $sentinel) {
 				$data[$key] = $value;

@@ -17,6 +17,13 @@ use OCP\AppFramework\Db\MultipleObjectsReturnedException;
 use OCP\IL10N;
 
 class ProfileService {
+	/**
+	 * Valid tool ids. Kept in sync with TOOL_IDS in src/services/tools.js —
+	 * the frontend decides which definitions to send, this list makes sure
+	 * nothing unknown ever reaches the database.
+	 */
+	public const TOOL_IDS = ['datetime', 'web_search', 'web_fetch'];
+
 	public function __construct(
 		private ProfileMapper $mapper,
 		private ConnectionService $connections,
@@ -50,7 +57,7 @@ class ProfileService {
 		$profile->setMaxTokens($this->nullableInt($data['max_tokens'] ?? null));
 		$profile->setStreaming((bool)($data['streaming'] ?? true));
 		$profile->setReasoning((bool)($data['reasoning'] ?? true));
-		$profile->setTools((bool)($data['tools'] ?? false));
+		$profile->setEnabledTools($this->normalizeTools($data['enabled_tools'] ?? []));
 		$profile->setSortOrder($this->mapper->maxSortOrder($userId) + 1);
 
 		// the very first profile is the default, no matter what the client says
@@ -94,8 +101,8 @@ class ProfileService {
 		if (array_key_exists('reasoning', $data)) {
 			$profile->setReasoning((bool)$data['reasoning']);
 		}
-		if (array_key_exists('tools', $data)) {
-			$profile->setTools((bool)$data['tools']);
+		if (array_key_exists('enabled_tools', $data)) {
+			$profile->setEnabledTools($this->normalizeTools($data['enabled_tools']));
 		}
 
 		$makeDefault = array_key_exists('is_default', $data) && (bool)$data['is_default'];
@@ -129,7 +136,7 @@ class ProfileService {
 		$copy->setMaxTokens($source->getMaxTokens());
 		$copy->setStreaming($source->getStreaming());
 		$copy->setReasoning($source->getReasoning());
-		$copy->setTools($source->getTools());
+		$copy->setEnabledTools($source->getEnabledTools());
 		$copy->setIsDefault(false);
 		$copy->setSortOrder($source->getSortOrder() + 1);
 
@@ -197,7 +204,7 @@ class ProfileService {
 				'max_tokens' => $raw['max_tokens'] ?? null,
 				'streaming' => $raw['streaming'] ?? true,
 				'reasoning' => $raw['reasoning'] ?? true,
-				'tools' => $raw['tools'] ?? false,
+				'enabled_tools' => $raw['enabled_tools'] ?? [],
 				'is_default' => false,
 			]);
 		}
@@ -240,6 +247,29 @@ class ProfileService {
 		}
 
 		return mb_substr($model, 0, 255);
+	}
+
+	/**
+	 * Accepts an array or a comma separated string, keeps only known ids and
+	 * drops duplicates. Unknown ids are silently discarded rather than
+	 * rejected: an import from a newer version should lose the tool it does
+	 * not know, not fail outright.
+	 */
+	private function normalizeTools(mixed $value): string {
+		if (is_string($value)) {
+			$value = explode(',', $value);
+		}
+		if (!is_array($value)) {
+			return '';
+		}
+
+		$ids = array_map(static fn ($v) => trim((string)$v), $value);
+		$ids = array_values(array_unique(array_filter(
+			$ids,
+			static fn ($v) => in_array($v, self::TOOL_IDS, true)
+		)));
+
+		return implode(',', $ids);
 	}
 
 	private function nullableString(mixed $value): ?string {
