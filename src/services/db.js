@@ -6,6 +6,8 @@
  * and per device — that is the point, and the reason the archive exists.
  */
 
+import { toRaw } from 'vue'
+
 const DB_NAME = 'nc_llm'
 const DB_VERSION = 2
 
@@ -73,6 +75,27 @@ function req(request) {
 	})
 }
 
+/**
+ * Strips Vue reactivity before handing an object to IndexedDB.
+ *
+ * IndexedDB serialises with the structured clone algorithm, which throws
+ * "Proxy object could not be cloned." on reactive objects. Anything that was
+ * ever touched through the store — a message whose `tool_log` was appended to
+ * during streaming, for instance — is a Proxy, and it fails at write time,
+ * long after the code that created it.
+ *
+ * Doing this in the db layer rather than at the call sites means no future
+ * write can reintroduce the bug.
+ *
+ * @param {object} value plain or reactive object
+ * @return {object} structured-cloneable copy
+ */
+function detach(value) {
+	// toRaw only unwraps the outermost proxy; nested arrays stay reactive,
+	// so round-trip through JSON — the stored shapes are plain data anyway
+	return JSON.parse(JSON.stringify(toRaw(value)))
+}
+
 export function uid() {
 	if (globalThis.crypto?.randomUUID) {
 		return globalThis.crypto.randomUUID()
@@ -91,9 +114,10 @@ export async function getChat(id) {
 }
 
 export async function putChat(chat) {
-	await tx(['chats'], 'readwrite', (t) => t.objectStore('chats').put(chat))
+	const plain = detach(chat)
+	await tx(['chats'], 'readwrite', (t) => t.objectStore('chats').put(plain))
 
-	return chat
+	return plain
 }
 
 export async function createChat({ profileId, title = '' }) {
@@ -128,9 +152,10 @@ export async function listMessages(chatId) {
 }
 
 export async function putMessage(message) {
-	await tx(['messages'], 'readwrite', (t) => t.objectStore('messages').put(message))
+	const plain = detach(message)
+	await tx(['messages'], 'readwrite', (t) => t.objectStore('messages').put(plain))
 
-	return message
+	return plain
 }
 
 export async function deleteMessages(ids) {
@@ -149,7 +174,7 @@ export async function getCachedModels(connectionId) {
 }
 
 export async function cacheModels(connectionId, models) {
-	const entry = { connection_id: connectionId, models, fetched_at: Date.now() }
+	const entry = detach({ connection_id: connectionId, models, fetched_at: Date.now() })
 	await tx(['models'], 'readwrite', (t) => t.objectStore('models').put(entry))
 
 	return entry

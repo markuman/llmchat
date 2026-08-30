@@ -138,9 +138,13 @@ How it works, and what it changes:
 * **Tool rounds are ephemeral.** Fetched page content is fed to the model but never stored in the
   chat history — the next message does not re-send kilobytes of scraped text. A collapsed
   "tool calls" log on the answer shows what happened.
-* Search providers: **DuckDuckGo instant answers** (default, zero setup, thin results) or a
-  self-hosted **SearXNG** instance (real results; needs `formats: [html, json]` in its
-  `settings.yml`). Configure in the app settings.
+* Search providers: **DuckDuckGo** (default, zero setup) or a self-hosted **SearXNG** instance
+  (needs `formats: [html, json]` in its `settings.yml`). Configure in the app settings.
+
+  Be aware what the default actually is: DuckDuckGo's Instant Answer API returns encyclopedic
+  entities only. `berlin` works, `weather in berlin tomorrow` returns **nothing** — it is not a
+  web search engine. If you want the model to answer questions from the live web, run SearXNG.
+  The tool tells the model why a result set was empty so it does not start inventing URLs.
 * The fetch endpoint is intentionally locked down: http/https only, standard ports only, no
   credentials in URLs, SSRF protection via Nextcloud's HTTP client (DNS pinning, local address
   blocking, re-validation on every redirect), 2 MB response cap, text extraction only — the

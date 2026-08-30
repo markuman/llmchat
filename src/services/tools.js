@@ -60,13 +60,15 @@ const DEFINITIONS = {
 		function: {
 			name: 'web_fetch',
 			description: 'Fetch a web page and return its readable text content. '
-				+ 'Only http/https URLs on standard ports. Content may be truncated.',
+				+ 'Only http/https URLs on standard ports. Content may be truncated. '
+				+ 'Only use URLs the user gave you or that came from web_search results — '
+				+ 'never invent or guess a URL.',
 			parameters: {
 				type: 'object',
 				properties: {
 					url: {
 						type: 'string',
-						description: 'The absolute URL to fetch.',
+						description: 'The absolute URL to fetch. Must come from the user or from search results.',
 					},
 				},
 				required: ['url'],
@@ -164,9 +166,14 @@ export async function executeTool(call, enabled = []) {
 				return { content: JSON.stringify({ error: 'query missing' }), summary: 'web_search: query missing' }
 			}
 			const { data } = await axios.post(toolUrl('/search'), { query })
+			const count = data.results?.length ?? 0
 			return {
 				content: JSON.stringify(data),
-				summary: `"${query}" — ${data.results?.length ?? 0} results (${data.provider})`,
+				// a bare "0 results" reads like a bug; say that the provider
+				// simply cannot answer this kind of query
+				summary: count === 0
+					? `"${query}" — no results (${data.provider} covers entities only)`
+					: `"${query}" — ${count} results (${data.provider})`,
 			}
 		}
 

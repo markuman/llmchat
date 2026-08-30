@@ -60,11 +60,27 @@ class WebSearchService {
 			default => $this->duckduckgo($query),
 		};
 
-		return [
+		$payload = [
 			'provider' => $provider,
 			'query' => $query,
 			'results' => array_slice($results, 0, self::MAX_RESULTS),
 		];
+
+		// An empty result list is the normal case for DuckDuckGo: its Instant
+		// Answer API only knows entities ("berlin"), not questions ("weather in
+		// berlin tomorrow"). Without an explanation the model reads this as
+		// "nothing exists" and starts guessing URLs to fetch, so tell it what
+		// actually happened and what to do instead.
+		if ($payload['results'] === []) {
+			$payload['note'] = $provider === 'duckduckgo'
+				? 'No results. This provider only covers encyclopedic entities, not questions, '
+					. 'news or weather. Do not guess URLs — tell the user that the DuckDuckGo '
+					. 'instant answer backend cannot answer this and that a SearXNG instance '
+					. 'can be configured in the app settings for real web search.'
+				: 'No results for this query. Consider rephrasing it.';
+		}
+
+		return $payload;
 	}
 
 	/**

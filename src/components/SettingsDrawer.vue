@@ -71,7 +71,7 @@
 				:clearable="false"
 				label="label" />
 			<p v-if="config.settings.search_provider === 'duckduckgo'" class="drawer__hint">
-				{{ t('llmchat', 'DuckDuckGo instant answers only — needs no setup, but results are thin. A SearXNG instance gives real search results.') }}
+				{{ t('llmchat', 'Encyclopedic entities only ("Berlin"), no questions, news or weather — those return nothing. Needs no setup. For real web search, run a SearXNG instance.') }}
 			</p>
 
 			<div v-if="config.settings.search_provider === 'searxng'" class="drawer__field">
@@ -135,7 +135,7 @@ export default {
 			archiveFolder: this.config?.settings?.archive_folder ?? '/LLM Chats',
 			searxngUrl: this.config?.settings?.searxng_url ?? '',
 			searchProviderOptions: [
-				{ id: 'duckduckgo', label: 'DuckDuckGo (instant answers)' },
+				{ id: 'duckduckgo', label: 'DuckDuckGo (entities only)' },
 				{ id: 'searxng', label: 'SearXNG (self-hosted)' },
 			],
 		}
