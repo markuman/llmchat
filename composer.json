@@ -1,0 +1,32 @@
+{
+	"name": "osuv/llmchat",
+	"description": "Nextcloud LLM chat app — browser talks to the LLM directly",
+	"type": "project",
+	"license": "AGPL-3.0-or-later",
+	"require": {
+		"php": ">=8.2"
+	},
+	"require-dev": {
+		"nextcloud/ocp": "^30.0",
+		"nextcloud/coding-standard": "^1.3",
+		"psalm/phar": "^5.26"
+	},
+	"config": {
+		"optimize-autoloader": true,
+		"classmap-authoritative": true,
+		"sort-packages": true,
+		"platform": {
+			"php": "8.2"
+		}
+	},
+	"autoload": {
+		"psr-4": {
+			"OCA\\LlmChat\\": "lib/"
+		}
+	},
+	"scripts": {
+		"cs:check": "php-cs-fixer fix --dry-run --diff",
+		"cs:fix": "php-cs-fixer fix",
+		"psalm": "psalm.phar --threads=1"
+	}
+}

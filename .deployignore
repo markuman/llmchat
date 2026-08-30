@@ -1,0 +1,29 @@
+# Files that must not end up in apps/llmchat/ on the server.
+# Used via: rsync --exclude-from=.deployignore
+#
+# The built artefacts in js/ and css/ MUST be transferred — nothing is
+# built on the server.
+
+# dependencies and sources — build inputs, useless at runtime
+node_modules/
+src/
+package.json
+package-lock.json
+vite.config.js
+
+# Never ship a composer/ directory: its presence switches off Nextcloud's
+# generic PSR-4 autoloader (AppManager::registerAutoloading), and without a
+# vendor/ next to it the app dies with a fatal error.
+composer.json
+composer.lock
+composer/
+vendor/
+
+# sourcemaps — 11 of the 14 MB in js/, only useful with src/ present
+*.map
+
+# repo noise
+.git/
+.gitignore
+.deployignore
+nextcloud-llm-app-spec.md

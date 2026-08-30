@@ -1,0 +1,264 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
+namespace OCA\LlmChat\Service;
+
+use OCA\LlmChat\Db\Profile;
+use OCA\LlmChat\Db\ProfileMapper;
+use OCA\LlmChat\Exception\BadRequestException;
+use OCA\LlmChat\Exception\NotFoundException;
+use OCP\AppFramework\Db\DoesNotExistException;
+use OCP\AppFramework\Db\MultipleObjectsReturnedException;
+use OCP\IL10N;
+
+class ProfileService {
+	public function __construct(
+		private ProfileMapper $mapper,
+		private ConnectionService $connections,
+		private IL10N $l10n,
+	) {
+	}
+
+	/**
+	 * @return Profile[]
+	 */
+	public function findAll(string $userId): array {
+		return $this->mapper->findAllForUser($userId);
+	}
+
+	public function find(int $id, string $userId): Profile {
+		try {
+			return $this->mapper->findForUser($id, $userId);
+		} catch (DoesNotExistException|MultipleObjectsReturnedException) {
+			throw new NotFoundException('profile not found');
+		}
+	}
+
+	public function create(string $userId, array $data): Profile {
+		$profile = new Profile();
+		$profile->setUserId($userId);
+		$profile->setName($this->requireName($data['name'] ?? ''));
+		$profile->setModel($this->requireModel($data['model'] ?? ''));
+		$profile->setConnectionId($this->requireConnection((int)($data['connection_id'] ?? 0), $userId));
+		$profile->setSystemPrompt($this->nullableString($data['system_prompt'] ?? null));
+		$profile->setTemperature($this->nullableFloat($data['temperature'] ?? null));
+		$profile->setMaxTokens($this->nullableInt($data['max_tokens'] ?? null));
+		$profile->setStreaming((bool)($data['streaming'] ?? true));
+		$profile->setReasoning((bool)($data['reasoning'] ?? true));
+		$profile->setSortOrder($this->mapper->maxSortOrder($userId) + 1);
+
+		// the very first profile is the default, no matter what the client says
+		$isFirst = count($this->mapper->findAllForUser($userId)) === 0;
+		$makeDefault = $isFirst || (bool)($data['is_default'] ?? false);
+		$profile->setIsDefault($makeDefault);
+
+		$profile = $this->mapper->insert($profile);
+
+		if ($makeDefault) {
+			$this->mapper->clearDefault($userId, $profile->getId());
+		}
+
+		return $profile;
+	}
+
+	public function update(int $id, string $userId, array $data): Profile {
+		$profile = $this->find($id, $userId);
+
+		if (array_key_exists('name', $data)) {
+			$profile->setName($this->requireName((string)$data['name']));
+		}
+		if (array_key_exists('model', $data)) {
+			$profile->setModel($this->requireModel((string)$data['model']));
+		}
+		if (array_key_exists('connection_id', $data)) {
+			$profile->setConnectionId($this->requireConnection((int)$data['connection_id'], $userId));
+		}
+		if (array_key_exists('system_prompt', $data)) {
+			$profile->setSystemPrompt($this->nullableString($data['system_prompt']));
+		}
+		if (array_key_exists('temperature', $data)) {
+			$profile->setTemperature($this->nullableFloat($data['temperature']));
+		}
+		if (array_key_exists('max_tokens', $data)) {
+			$profile->setMaxTokens($this->nullableInt($data['max_tokens']));
+		}
+		if (array_key_exists('streaming', $data)) {
+			$profile->setStreaming((bool)$data['streaming']);
+		}
+		if (array_key_exists('reasoning', $data)) {
+			$profile->setReasoning((bool)$data['reasoning']);
+		}
+
+		$makeDefault = array_key_exists('is_default', $data) && (bool)$data['is_default'];
+		if ($makeDefault) {
+			$profile->setIsDefault(true);
+		}
+
+		$profile = $this->mapper->update($profile);
+
+		if ($makeDefault) {
+			$this->mapper->clearDefault($userId, $profile->getId());
+		}
+
+		return $profile;
+	}
+
+	/**
+	 * Spec §3.3: copies one row, references the connection instead of
+	 * copying it, never touches secrets.
+	 */
+	public function duplicate(int $id, string $userId): Profile {
+		$source = $this->find($id, $userId);
+
+		$copy = new Profile();
+		$copy->setUserId($userId);
+		$copy->setConnectionId($source->getConnectionId());
+		$copy->setName($this->l10n->t('%s (copy)', [$source->getName()]));
+		$copy->setModel($source->getModel());
+		$copy->setSystemPrompt($source->getSystemPrompt());
+		$copy->setTemperature($source->getTemperature());
+		$copy->setMaxTokens($source->getMaxTokens());
+		$copy->setStreaming($source->getStreaming());
+		$copy->setReasoning($source->getReasoning());
+		$copy->setIsDefault(false);
+		$copy->setSortOrder($source->getSortOrder() + 1);
+
+		$copy = $this->mapper->insert($copy);
+		$this->shiftSortOrderAfter($userId, $source->getSortOrder(), $copy->getId());
+
+		return $copy;
+	}
+
+	public function delete(int $id, string $userId): void {
+		$profile = $this->find($id, $userId);
+		$wasDefault = $profile->getIsDefault();
+
+		$this->mapper->delete($profile);
+
+		if ($wasDefault) {
+			$remaining = $this->mapper->findAllForUser($userId);
+			if (count($remaining) > 0) {
+				$next = $remaining[0];
+				$next->setIsDefault(true);
+				$this->mapper->update($next);
+			}
+		}
+	}
+
+	/**
+	 * @param int[] $orderedIds
+	 * @return Profile[]
+	 */
+	public function reorder(string $userId, array $orderedIds): array {
+		$position = 0;
+		foreach ($orderedIds as $id) {
+			try {
+				$profile = $this->find((int)$id, $userId);
+			} catch (NotFoundException) {
+				continue;
+			}
+			$profile->setSortOrder($position++);
+			$this->mapper->update($profile);
+		}
+
+		return $this->findAll($userId);
+	}
+
+	/**
+	 * Spec §3.4: import assigns every incoming profile to a connection the
+	 * user picked; nothing about credentials travels in the file.
+	 *
+	 * @return Profile[]
+	 */
+	public function import(string $userId, array $profiles, int $connectionId): array {
+		$this->requireConnection($connectionId, $userId);
+
+		$created = [];
+		foreach ($profiles as $raw) {
+			if (!is_array($raw)) {
+				continue;
+			}
+			$created[] = $this->create($userId, [
+				'name' => $raw['name'] ?? $this->l10n->t('Imported profile'),
+				'model' => $raw['model'] ?? '',
+				'connection_id' => $connectionId,
+				'system_prompt' => $raw['system_prompt'] ?? null,
+				'temperature' => $raw['temperature'] ?? null,
+				'max_tokens' => $raw['max_tokens'] ?? null,
+				'streaming' => $raw['streaming'] ?? true,
+				'reasoning' => $raw['reasoning'] ?? true,
+				'is_default' => false,
+			]);
+		}
+
+		return $created;
+	}
+
+	private function shiftSortOrderAfter(string $userId, int $afterOrder, int $exceptId): void {
+		foreach ($this->mapper->findAllForUser($userId) as $profile) {
+			if ($profile->getId() === $exceptId) {
+				continue;
+			}
+			if ($profile->getSortOrder() > $afterOrder) {
+				$profile->setSortOrder($profile->getSortOrder() + 1);
+				$this->mapper->update($profile);
+			}
+		}
+	}
+
+	private function requireConnection(int $connectionId, string $userId): int {
+		// throws NotFoundException if it is not the user's connection
+		$this->connections->find($connectionId, $userId);
+
+		return $connectionId;
+	}
+
+	private function requireName(string $name): string {
+		$name = trim($name);
+		if ($name === '') {
+			throw new BadRequestException('name must not be empty');
+		}
+
+		return mb_substr($name, 0, 128);
+	}
+
+	private function requireModel(string $model): string {
+		$model = trim($model);
+		if ($model === '') {
+			throw new BadRequestException('model must not be empty');
+		}
+
+		return mb_substr($model, 0, 255);
+	}
+
+	private function nullableString(mixed $value): ?string {
+		if ($value === null) {
+			return null;
+		}
+		$value = (string)$value;
+
+		return $value === '' ? null : $value;
+	}
+
+	private function nullableFloat(mixed $value): ?float {
+		if ($value === null || $value === '') {
+			return null;
+		}
+
+		return max(0.0, min(2.0, (float)$value));
+	}
+
+	private function nullableInt(mixed $value): ?int {
+		if ($value === null || $value === '') {
+			return null;
+		}
+		$int = (int)$value;
+
+		return $int > 0 ? $int : null;
+	}
+}

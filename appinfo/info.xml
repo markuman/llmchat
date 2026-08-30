@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+	<id>llmchat</id>
+	<name>LLM Chat</name>
+	<summary>Chat with LLMs directly from your browser — the server never sees your prompts</summary>
+	<description><![CDATA[
+A chat interface for large language models where **your browser talks directly to the LLM backend**.
+Nextcloud acts only as configuration storage and archive target — it is never a proxy and never sees
+prompts or responses.
+
+Because the requests originate in the browser, `localhost` resolves from the *user's* machine. Your
+Nextcloud can live in a datacenter and still talk to an Ollama instance running on your laptop.
+
+Features:
+
+* Multiple connections (Ollama, OpenAI-compatible, OpenRouter) with encrypted API key storage
+* Multiple profiles per connection (model, system prompt, temperature, max tokens)
+* Streaming responses with abort support
+* Chat history in IndexedDB — local to the browser, by design
+* Archive chats as Markdown files into your Nextcloud files
+* Profile export/import as JSON (never contains secrets)
+
+**Note:** API keys are stored encrypted on the server but are necessarily delivered to the browser,
+since that is where the request is made. Each user only ever sees their own key.
+	]]></description>
+	<version>1.1.0</version>
+	<licence>agpl</licence>
+	<author>osuv</author>
+	<namespace>LlmChat</namespace>
+	<category>tools</category>
+	<category>office</category>
+	<bugs>https://github.com/osuv/llmchat/issues</bugs>
+	<screenshot>https://raw.githubusercontent.com/osuv/llmchat/main/img/screenshot.png</screenshot>
+	<dependencies>
+		<php min-version="8.2"/>
+		<nextcloud min-version="34" max-version="34"/>
+	</dependencies>
+	<navigations>
+		<navigation>
+			<id>llmchat</id>
+			<name>LLM Chat</name>
+			<route>llmchat.page.index</route>
+			<icon>app.svg</icon>
+			<order>10</order>
+		</navigation>
+	</navigations>
+</info>

@@ -1,0 +1,8 @@
+/node_modules
+/vendor
+/js
+/css
+/build
+/.php-cs-fixer.cache
+/.stylelintcache
+*.log
