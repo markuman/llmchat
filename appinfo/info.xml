@@ -33,15 +33,22 @@ Features:
 since that is where the request is made. Each user only ever sees their own key.
 	]]></description>
 	<version>1.6.0</version>
-	<licence>agpl</licence>
-	<author>osuv</author>
+	<!-- SPDX identifier, required for apps targeting Nextcloud 31+ -->
+	<licence>AGPL-3.0-or-later</licence>
+	<author>Markus Bergholz</author>
 	<namespace>LlmChat</namespace>
+	<!-- element order below is fixed by the XSD, not cosmetic -->
+	<documentation>
+		<admin>https://github.com/markuman/llmchat#readme</admin>
+	</documentation>
+	<category>ai</category>
 	<category>tools</category>
-	<category>office</category>
-	<bugs>https://github.com/osuv/llmchat/issues</bugs>
+	<website>https://github.com/markuman/llmchat</website>
+	<bugs>https://github.com/markuman/llmchat/issues</bugs>
+	<repository type="git">https://github.com/markuman/llmchat</repository>
 	<!-- add img/screenshot.png and re-enable before publishing; a dead link
 	     renders as a broken placeholder in the app store
-	<screenshot>https://raw.githubusercontent.com/osuv/llmchat/main/img/screenshot.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/markuman/llmchat/main/img/screenshot.png</screenshot>
 	-->
 
 	<dependencies>

@@ -301,6 +301,53 @@ The PHP side is deliberately thin: settings CRUD, archive writing, CSP generatio
 and the `web_fetch` endpoint. Streaming, the agent loop, tool calls, token counting and error
 handling all live in the frontend — where the data already is.
 
+<details>
+<summary><b>📦 Publishing a release to the Nextcloud App Store</b></summary>
+
+<br>
+
+**Build the archive:**
+
+```bash
+./build-release.sh --no-sign   # or without the flag once you have a certificate
+```
+
+GitHub's own release tarballs are *not* usable: they put the version into the top level folder
+name, and the store requires that folder to be exactly the app id. The script produces a
+conforming archive and checks the layout — one top level folder, `appinfo/info.xml` present, no
+`.git`.
+
+**One-time setup:**
+
+1. Generate a key and CSR:
+   ```bash
+   mkdir -p ~/.nextcloud/certificates && cd ~/.nextcloud/certificates
+   openssl req -nodes -newkey rsa:4096 -keyout llmchat.key -out llmchat.csr -subj "/CN=llmchat"
+   ```
+2. Open a PR with `llmchat.csr` against
+   [nextcloud/app-certificate-requests](https://github.com/nextcloud/app-certificate-requests).
+   Your GitHub profile must show a public email address. They sign it and post `llmchat.crt` back
+   — save it next to the key.
+3. Register the app id at [apps.nextcloud.com/developer/apps/new](https://apps.nextcloud.com/developer/apps/new)
+   with the certificate and this signature:
+   ```bash
+   echo -n "llmchat" | openssl dgst -sha512 -sign ~/.nextcloud/certificates/llmchat.key | openssl base64
+   ```
+
+**Per release:**
+
+1. Bump `<version>` in `appinfo/info.xml` and add a matching `## X.Y.Z` section to `CHANGELOG.md`
+   — the script refuses to build if they disagree, because a mismatch makes the store import an
+   empty changelog.
+2. `git tag vX.Y.Z && git push --tags`, then attach the tarball to a GitHub release.
+3. Submit the download URL plus the signature printed by the script at
+   [developer/apps/releases/new](https://apps.nextcloud.com/developer/apps/releases/new).
+
+> Keep `llmchat.key` private. Losing it means revoking the certificate, and re-registering deletes
+> every existing release.
+
+</details>
+
 ---
 
 <div align="center">

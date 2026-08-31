@@ -6,3 +6,6 @@
 /.php-cs-fixer.cache
 /.stylelintcache
 *.log
+
+# design document, not part of the app
+nextcloud-llm-app-spec.md
