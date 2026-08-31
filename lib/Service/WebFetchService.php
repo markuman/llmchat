@@ -11,6 +11,8 @@ namespace OCA\LlmChat\Service;
 use OCA\LlmChat\Exception\BadRequestException;
 use OCP\Http\Client\IClientService;
 use OCP\Http\Client\LocalServerException;
+use OCP\IConfig;
+use OCP\IURLGenerator;
 use OCP\Security\IRemoteHostValidator;
 use Psr\Log\LoggerInterface;
 
@@ -59,6 +61,8 @@ class WebFetchService {
 		private IClientService $clientService,
 		private IRemoteHostValidator $hostValidator,
 		private UserAgentRotator $userAgents,
+		private IConfig $config,
+		private IURLGenerator $urlGenerator,
 		private LoggerInterface $logger,
 	) {
 	}
@@ -83,7 +87,11 @@ class WebFetchService {
 				// stream so the size cap can be enforced while reading,
 				// instead of after the whole body is already in memory
 				'stream' => true,
-				'allow_redirects' => ['max' => 5],
+				// deliberately NOT setting allow_redirects here: Nextcloud's
+				// client installs an on_redirect callback that re-validates
+				// every hop against the local-address rules, and array_merge
+				// in buildRequestOptions() would replace it wholesale — a
+				// redirect to an internal host would then go through
 			]);
 		} catch (LocalServerException $e) {
 			// no detail on purpose: do not leak which internal hosts exist
@@ -162,7 +170,61 @@ class WebFetchService {
 			throw new BadRequestException('this address is not allowed');
 		}
 
+		// This Nextcloud is off limits. The SSRF guard does not catch it —
+		// the instance usually resolves to a perfectly public address — but
+		// fetching it server-side is still wrong: the request carries no
+		// session, so it either 401s or, worse, silently reads whatever is
+		// public (share links, previews) under the server's own identity.
+		// Reading Nextcloud content is the browser's job, where the user's
+		// own permissions apply.
+		if ($this->isOwnInstance($parts['host'])) {
+			throw new BadRequestException(
+				'this Nextcloud instance cannot be fetched — use the nextcloud tools instead'
+			);
+		}
+
 		return $url;
+	}
+
+	/**
+	 * Every name this instance is known by: the current base url, the
+	 * configured trusted domains and the CLI overwrite. Ports are ignored on
+	 * purpose — a different port on the same host is still this instance.
+	 */
+	private function isOwnInstance(string $host): bool {
+		$host = strtolower(rtrim($host, '.'));
+		if ($host === '') {
+			return false;
+		}
+
+		$candidates = [
+			parse_url($this->urlGenerator->getBaseUrl(), PHP_URL_HOST),
+			parse_url((string)$this->config->getSystemValue('overwrite.cli.url', ''), PHP_URL_HOST),
+		];
+
+		foreach ((array)$this->config->getSystemValue('trusted_domains', []) as $domain) {
+			// trusted domains may carry a port and may be a wildcard
+			$candidates[] = strtok((string)$domain, ':');
+		}
+
+		foreach ($candidates as $candidate) {
+			if (!is_string($candidate) || $candidate === '') {
+				continue;
+			}
+
+			$candidate = strtolower(rtrim($candidate, '.'));
+			if ($candidate === $host) {
+				return true;
+			}
+
+			// trusted_domains supports a leading wildcard (*.example.com)
+			if (str_starts_with($candidate, '*.')
+				&& str_ends_with($host, substr($candidate, 1))) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	private function isTextual(string $contentType): bool {
