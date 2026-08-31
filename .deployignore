@@ -22,7 +22,13 @@ vendor/
 # sourcemaps — 11 of the 14 MB in js/, only useful with src/ present
 *.map
 
+# Screenshots are referenced by URL, so the app store and GitHub fetch them
+# from the repository — shipping them would put 350 KB of documentation on
+# every installation. img/app.svg must stay: it is the navigation icon.
+img/[0-9]-*.png
+
 # repo noise
+# CHANGELOG.md stays: the app store parses it out of the release archive.
 .git/
 .gitignore
 .deployignore

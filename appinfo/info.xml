@@ -46,10 +46,13 @@ since that is where the request is made. Each user only ever sees their own key.
 	<website>https://github.com/markuman/llmchat</website>
 	<bugs>https://github.com/markuman/llmchat/issues</bugs>
 	<repository type="git">https://github.com/markuman/llmchat</repository>
-	<!-- add img/screenshot.png and re-enable before publishing; a dead link
-	     renders as a broken placeholder in the app store
-	<screenshot>https://raw.githubusercontent.com/markuman/llmchat/main/img/screenshot.png</screenshot>
-	-->
+	<!-- Order matters: this is the sequence shown in the store gallery, and
+	     the first one is the thumbnail on the app list. Served from the
+	     default branch, so the URLs keep working across releases. -->
+	<screenshot>https://raw.githubusercontent.com/markuman/llmchat/main/img/1-chat.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/markuman/llmchat/main/img/2-agent-loop.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/markuman/llmchat/main/img/3-approval.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/markuman/llmchat/main/img/4-nextcloud-tools.png</screenshot>
 
 	<dependencies>
 		<php min-version="8.2"/>
