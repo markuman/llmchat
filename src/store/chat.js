@@ -15,7 +15,7 @@ import {
 	splitThink,
 	streamCompletion,
 } from '../services/llm.js'
-import { executeTool, toolDefinitionsFor } from '../services/tools.js'
+import { executeTool, needsApproval, toolDefinitionsFor } from '../services/tools.js'
 import { useConfigStore } from './config.js'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -31,6 +31,13 @@ export const useChatStore = defineStore('chat', {
 		storageWarning: null,
 		/** markRaw'ed on assignment: fetch rejects a reactive proxy of AbortSignal */
 		controller: null,
+		/**
+		 * Set while the agent loop waits for the user to approve a tool call:
+		 * `{name, args, resolve}`. The resolver is markRaw'ed — a reactive
+		 * proxy of a function is still callable, but there is no reason to
+		 * track it.
+		 */
+		pendingApproval: null,
 	}),
 
 	getters: {
@@ -169,6 +176,9 @@ export const useChatStore = defineStore('chat', {
 		},
 
 		abort() {
+			// release a waiting approval first, otherwise the loop stays
+			// parked on a promise that nobody will ever resolve
+			this.resolveApproval(false)
 			this.controller?.abort()
 			this.controller = null
 			this.generating = false
@@ -332,7 +342,42 @@ export const useChatStore = defineStore('chat', {
 			} finally {
 				this.generating = false
 				this.controller = null
+				this.pendingApproval = null
 			}
+		},
+
+		/**
+		 * Resolves the pending approval dialog.
+		 *
+		 * @param {boolean} approved what the user clicked
+		 */
+		resolveApproval(approved) {
+			const pending = this.pendingApproval
+			this.pendingApproval = null
+			pending?.resolve(approved)
+		},
+
+		/**
+		 * Blocks until the user approves a tool call, or resolves immediately
+		 * when approval is off for this profile.
+		 *
+		 * @param {object} call the tool call
+		 * @param {object} args parsed arguments
+		 * @param {boolean} required whether the profile asks for approval
+		 * @return {Promise<boolean>} true when the call may run
+		 */
+		requestApproval(call, args, required) {
+			if (!required) {
+				return Promise.resolve(true)
+			}
+
+			return new Promise((resolve) => {
+				this.pendingApproval = markRaw({
+					name: call.function.name,
+					args,
+					resolve,
+				})
+			})
 		},
 
 		/**
@@ -365,6 +410,7 @@ export const useChatStore = defineStore('chat', {
 			const definitions = toolDefinitionsFor(enabledTools)
 			// web_search runs in the browser and needs the instance url
 			const toolOptions = { searxngUrl: useConfigStore().settings.searxng_url ?? '' }
+			const approvalRequired = profile.tool_approval !== false
 
 			// ephemeral working copy — never persisted
 			const loopMessages = [...history]
@@ -414,7 +460,17 @@ export const useChatStore = defineStore('chat', {
 						throw new DOMException('aborted', 'AbortError')
 					}
 
-					const { content, summary } = await executeTool(call, enabledTools, toolOptions)
+					let outcome
+					if (await this.approveCall(call, approvalRequired)) {
+						outcome = await executeTool(call, enabledTools, toolOptions)
+					} else {
+						// the model gets a plain refusal and can carry on;
+						// aborting the whole turn would lose the answer
+						outcome = {
+							content: JSON.stringify({ error: 'the user declined this tool call' }),
+							summary: 'declined by you',
+						}
+					}
 
 					if (target) {
 						if (!target.tool_log) {
@@ -422,19 +478,43 @@ export const useChatStore = defineStore('chat', {
 						}
 						target.tool_log.push({
 							name: call.function.name,
-							summary,
+							summary: outcome.summary,
 						})
 					}
 
 					loopMessages.push({
 						role: 'tool',
 						tool_call_id: call.id,
-						content,
+						content: outcome.content,
 					})
 				}
 			}
 
 			return result
+		},
+
+		/**
+		 * Asks the user about one call, unless the tool is harmless enough to
+		 * run unattended or the profile switched approval off.
+		 *
+		 * @param {object} call the tool call
+		 * @param {boolean} approvalRequired profile setting
+		 * @return {Promise<boolean>} whether to run it
+		 */
+		async approveCall(call, approvalRequired) {
+			if (!approvalRequired || !needsApproval(call.function.name)) {
+				return true
+			}
+
+			let args = {}
+			try {
+				args = JSON.parse(call.function.arguments || '{}')
+			} catch {
+				// show the raw string rather than hiding a malformed call
+				args = { arguments: call.function.arguments }
+			}
+
+			return this.requestApproval(call, args, true)
 		},
 
 		/**

@@ -17,30 +17,36 @@
 // from them.
 import axios from '@nextcloud/axios'
 import { generateUrl } from '@nextcloud/router'
+import * as nc from './nextcloud.js'
 
 /**
  * Tool ids as stored per profile. Kept in sync with ProfileService::TOOL_IDS.
  *
  * They are separately selectable because they differ in what they cost:
  * `datetime` and `web_search` never touch the Nextcloud server, `web_fetch`
- * necessarily does.
+ * necessarily does, and `nc_read` reads your own Nextcloud content.
+ *
+ * One id can expose several functions — `nc_read` is a single checkbox in the
+ * profile but four functions for the model, because "search", "list" and
+ * "read" are much easier for a model to aim at than one call with a mode
+ * parameter.
  */
-export const TOOL_IDS = ['datetime', 'web_search', 'web_fetch']
+export const TOOL_IDS = ['datetime', 'web_search', 'web_fetch', 'nc_read']
+
+/**
+ * Tools whose effects warrant asking the user first (spec: approval mode).
+ * `web_search` is deliberately absent — confirming every research query would
+ * make the feature unusable, and a search leaks far less than a fetch.
+ */
+export const APPROVAL_TOOLS = ['web_fetch', 'nc_read']
 
 /** Trimmed to keep tool results small; the model can fetch a url for detail. */
 const MAX_SEARCH_RESULTS = 8
 const SEARCH_TIMEOUT_MS = 20000
 
-/** Maps a tool id to the function name the model sees. */
-const FUNCTION_NAMES = {
-	datetime: 'get_current_datetime',
-	web_search: 'web_search',
-	web_fetch: 'web_fetch',
-}
-
 /** OpenAI-compatible tool definitions, keyed by tool id. */
 const DEFINITIONS = {
-	datetime: {
+	datetime: [{
 		type: 'function',
 		function: {
 			name: 'get_current_datetime',
@@ -48,8 +54,8 @@ const DEFINITIONS = {
 				+ 'Use this whenever the answer depends on the current date or time.',
 			parameters: { type: 'object', properties: {}, required: [] },
 		},
-	},
-	web_search: {
+	}],
+	web_search: [{
 		type: 'function',
 		function: {
 			name: 'web_search',
@@ -67,8 +73,8 @@ const DEFINITIONS = {
 				required: ['query'],
 			},
 		},
-	},
-	web_fetch: {
+	}],
+	web_fetch: [{
 		type: 'function',
 		function: {
 			name: 'web_fetch',
@@ -87,8 +93,83 @@ const DEFINITIONS = {
 				required: ['url'],
 			},
 		},
-	},
+	}],
+
+	// One checkbox, four functions. Read-only throughout: nothing here can
+	// change anything in Nextcloud.
+	nc_read: [{
+		type: 'function',
+		function: {
+			name: 'nc_search',
+			description: "Search the user's own Nextcloud — files, calendar events, contacts, "
+				+ 'notes, collectives, Deck cards, Talk messages. Returns titles and links, '
+				+ 'not full content. Use this to find out what exists, then read it with a '
+				+ 'more specific tool.',
+			parameters: {
+				type: 'object',
+				properties: {
+					query: { type: 'string', description: 'What to look for.' },
+					provider: {
+						type: 'string',
+						description: 'Optional provider id to restrict the search, e.g. "files" '
+							+ 'or "calendar". Omit to search everything.',
+					},
+				},
+				required: ['query'],
+			},
+		},
+	}, {
+		type: 'function',
+		function: {
+			name: 'nc_list_collectives',
+			description: "List the user's collectives (shared wikis). Returns their ids and names.",
+			parameters: { type: 'object', properties: {}, required: [] },
+		},
+	}, {
+		type: 'function',
+		function: {
+			name: 'nc_list_pages',
+			description: 'List the pages of one collective. Returns page ids and titles, not '
+				+ 'their text. Use nc_read_page for the content.',
+			parameters: {
+				type: 'object',
+				properties: {
+					collective_id: { type: 'integer', description: 'From nc_list_collectives.' },
+					query: {
+						type: 'string',
+						description: 'Optional full text filter. Omit to list all pages.',
+					},
+				},
+				required: ['collective_id'],
+			},
+		},
+	}, {
+		type: 'function',
+		function: {
+			name: 'nc_read_page',
+			description: 'Read the markdown content of one collective page. Content may be '
+				+ 'truncated.',
+			parameters: {
+				type: 'object',
+				properties: {
+					collective_id: { type: 'integer', description: 'From nc_list_collectives.' },
+					page_id: { type: 'integer', description: 'From nc_list_pages.' },
+				},
+				required: ['collective_id', 'page_id'],
+			},
+		},
+	}],
 }
+
+/**
+ * Which tool id owns a given function name. Derived from the definitions so
+ * the two can never drift apart.
+ */
+const TOOL_ID_BY_FUNCTION = Object.fromEntries(
+	Object.entries(DEFINITIONS).flatMap(
+		([id, defs]) => defs.map((d) => [d.function.name, id]),
+	),
+)
 
 /**
  * Definitions for the tools a profile allows, in a stable order.
@@ -101,18 +182,29 @@ export function toolDefinitionsFor(enabled) {
 		return []
 	}
 
-	return TOOL_IDS.filter((id) => enabled.includes(id)).map((id) => DEFINITIONS[id])
+	return TOOL_IDS.filter((id) => enabled.includes(id)).flatMap((id) => DEFINITIONS[id])
 }
 
 /**
  * Reverse lookup: the model answers with function names, the allowlist holds
- * tool ids. Only used to reject calls a profile does not allow.
+ * tool ids. Used to reject calls a profile does not allow, and to decide
+ * whether a call needs approval.
  *
  * @param {string} functionName name from the tool call
  * @return {string|null} tool id
  */
-function toolIdOf(functionName) {
-	return Object.keys(FUNCTION_NAMES).find((id) => FUNCTION_NAMES[id] === functionName) ?? null
+export function toolIdOf(functionName) {
+	return TOOL_ID_BY_FUNCTION[functionName] ?? null
+}
+
+/**
+ * Whether a call should be shown to the user before it runs.
+ *
+ * @param {string} functionName name from the tool call
+ * @return {boolean} true when approval applies
+ */
+export function needsApproval(functionName) {
+	return APPROVAL_TOOLS.includes(toolIdOf(functionName))
 }
 
 function toolUrl(path) {
@@ -275,6 +367,64 @@ export async function executeTool(call, enabled = [], options = {}) {
 			return {
 				content: JSON.stringify(data),
 				summary: data.title ? `${data.title} (${url})` : url,
+			}
+		}
+
+		case 'nc_search': {
+			const query = String(args.query ?? '').trim()
+			const data = await nc.search(query, { provider: args.provider || null })
+			const count = (data.results ?? []).reduce((sum, r) => sum + r.entries.length, 0)
+			return {
+				content: JSON.stringify(data),
+				summary: data.error
+					? `nc_search: ${data.error}`
+					: `"${query}" — ${count === 0 ? 'nothing found' : `${count} hits`}`,
+			}
+		}
+
+		case 'nc_list_collectives': {
+			const data = await nc.listCollectives()
+			return {
+				content: JSON.stringify(data),
+				summary: `${data.collectives.length} collectives`,
+			}
+		}
+
+		case 'nc_list_pages': {
+			const collectiveId = Number(args.collective_id)
+			if (!collectiveId) {
+				return {
+					content: JSON.stringify({ error: 'collective_id missing' }),
+					summary: 'nc_list_pages: collective_id missing',
+				}
+			}
+			const query = String(args.query ?? '').trim()
+			const data = query
+				? await nc.searchCollective(collectiveId, query)
+				: await nc.listPages(collectiveId)
+			return {
+				content: JSON.stringify(data),
+				summary: data.error
+					? `nc_list_pages: ${data.error}`
+					: `${data.pages.length} pages${query ? ` matching "${query}"` : ''}`,
+			}
+		}
+
+		case 'nc_read_page': {
+			const collectiveId = Number(args.collective_id)
+			const pageId = Number(args.page_id)
+			if (!collectiveId || !pageId) {
+				return {
+					content: JSON.stringify({ error: 'collective_id and page_id are required' }),
+					summary: 'nc_read_page: missing ids',
+				}
+			}
+			const data = await nc.readPage(collectiveId, pageId)
+			return {
+				content: JSON.stringify(data),
+				summary: data.error
+					? `nc_read_page: ${data.error}`
+					: `${data.title}${data.truncated ? ' (truncated)' : ''}`,
 			}
 		}
 

@@ -190,7 +190,7 @@
 			<NcCheckboxRadioSwitch
 				:model-value="form.enabled_tools.includes('web_search')"
 				@update:model-value="toggleTool('web_search', $event)">
-				{{ t('llmchat', 'Web search — queries go through this server') }}
+				{{ t('llmchat', 'Web search — your browser queries SearXNG directly') }}
 			</NcCheckboxRadioSwitch>
 
 			<NcCheckboxRadioSwitch
@@ -199,9 +199,24 @@
 				{{ t('llmchat', 'Fetch web pages — URLs go through this server') }}
 			</NcCheckboxRadioSwitch>
 
+			<NcCheckboxRadioSwitch
+				:model-value="form.enabled_tools.includes('nc_read')"
+				@update:model-value="toggleTool('nc_read', $event)">
+				{{ t('llmchat', 'Read Nextcloud — search and collectives, read-only') }}
+			</NcCheckboxRadioSwitch>
+
 			<p class="form__hint">
 				{{ toolsHint }}
 			</p>
+
+			<template v-if="form.enabled_tools.length > 0">
+				<NcCheckboxRadioSwitch v-model="form.tool_approval" type="switch">
+					{{ t('llmchat', 'Ask before each tool call') }}
+				</NcCheckboxRadioSwitch>
+				<p class="form__hint">
+					{{ t('llmchat', 'Recommended. A fetched page can contain instructions aimed at the model, so this is where you see the resulting request before it goes out. Date/time and web search are never confirmed.') }}
+				</p>
+			</template>
 
 			<div class="form__actions">
 				<NcButton :disabled="!canSubmit || saving" variant="primary" type="submit">
@@ -250,6 +265,7 @@ function emptyForm(connectionId = null) {
 		streaming: true,
 		reasoning: true,
 		enabled_tools: [],
+		tool_approval: true,
 	}
 }
 
@@ -323,15 +339,26 @@ export default {
 		},
 
 		toolsHint() {
-			if (this.form.enabled_tools.length === 0) {
+			const tools = this.form.enabled_tools
+			if (tools.length === 0) {
 				return this.t('llmchat', 'No tools. The model answers from what it was trained on.')
 			}
 
-			const usesWeb = this.form.enabled_tools.some((id) => id.startsWith('web_'))
+			const base = this.t('llmchat', 'Requires a model that supports tool calling.')
 
-			return usesWeb
-				? this.t('llmchat', 'Requires a model that supports tool calling. Web tools route through this Nextcloud server, and fetched content is sent to the model.')
-				: this.t('llmchat', 'Requires a model that supports tool calling. Nothing leaves your browser with this selection.')
+			// what matters is what ends up at the model, so name the most
+			// far-reaching consequence of the current selection
+			if (tools.includes('nc_read')) {
+				return `${base} ${this.t('llmchat', 'Nextcloud content the model reads is sent to the model — think twice with a hosted provider.')}`
+			}
+			if (tools.includes('web_fetch')) {
+				return `${base} ${this.t('llmchat', 'Fetching runs on this Nextcloud server, and the page content is sent to the model.')}`
+			}
+			if (tools.includes('web_search')) {
+				return `${base} ${this.t('llmchat', 'Search queries go to your SearXNG instance, not to this server.')}`
+			}
+
+			return `${base} ${this.t('llmchat', 'Nothing leaves your browser with this selection.')}`
 		},
 	},
 
@@ -399,6 +426,7 @@ export default {
 				reasoning: profile.reasoning ?? true,
 				// copied, not referenced: toggling must not mutate the store
 				enabled_tools: [...(profile.enabled_tools ?? [])],
+				tool_approval: profile.tool_approval ?? true,
 			}
 			this.$nextTick(this.autogrow)
 		},
@@ -441,6 +469,7 @@ export default {
 					streaming: this.form.streaming,
 					reasoning: this.form.reasoning,
 					enabled_tools: this.form.enabled_tools,
+					tool_approval: this.form.tool_approval,
 				}
 
 				if (this.form.id) {
@@ -538,6 +567,7 @@ export default {
 					streaming: p.streaming,
 					reasoning: p.reasoning,
 					enabled_tools: p.enabled_tools,
+					tool_approval: p.tool_approval,
 				})),
 			}
 

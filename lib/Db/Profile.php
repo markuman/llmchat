@@ -33,6 +33,8 @@ use OCP\AppFramework\Db\Entity;
  * @method void setReasoning(bool $reasoning)
  * @method string getEnabledTools()
  * @method void setEnabledTools(string $enabledTools)
+ * @method bool getToolApproval()
+ * @method void setToolApproval(bool $toolApproval)
  * @method int getSortOrder()
  * @method void setSortOrder(int $sortOrder)
  */
@@ -53,6 +55,8 @@ class Profile extends Entity implements \JsonSerializable {
 	 * Stored flat, exposed as an array — see TOOL_IDS for the valid values.
 	 */
 	protected string $enabledTools = '';
+	/** ask before each tool call that reaches outside the browser */
+	protected bool $toolApproval = true;
 	protected int $sortOrder = 0;
 
 	public function __construct() {
@@ -67,6 +71,7 @@ class Profile extends Entity implements \JsonSerializable {
 		$this->addType('streaming', 'boolean');
 		$this->addType('reasoning', 'boolean');
 		$this->addType('enabledTools', 'string');
+		$this->addType('toolApproval', 'boolean');
 		$this->addType('sortOrder', 'integer');
 	}
 
@@ -83,6 +88,7 @@ class Profile extends Entity implements \JsonSerializable {
 			'streaming' => $this->getStreaming(),
 			'reasoning' => $this->getReasoning(),
 			'enabled_tools' => $this->getEnabledToolsArray(),
+			'tool_approval' => $this->getToolApproval(),
 			'sort_order' => $this->getSortOrder(),
 		];
 	}
@@ -113,6 +119,7 @@ class Profile extends Entity implements \JsonSerializable {
 			'streaming' => $this->getStreaming(),
 			'reasoning' => $this->getReasoning(),
 			'enabled_tools' => $this->getEnabledToolsArray(),
+			'tool_approval' => $this->getToolApproval(),
 		];
 	}
 }

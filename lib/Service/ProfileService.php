@@ -22,7 +22,7 @@ class ProfileService {
 	 * the frontend decides which definitions to send, this list makes sure
 	 * nothing unknown ever reaches the database.
 	 */
-	public const TOOL_IDS = ['datetime', 'web_search', 'web_fetch'];
+	public const TOOL_IDS = ['datetime', 'web_search', 'web_fetch', 'nc_read'];
 
 	public function __construct(
 		private ProfileMapper $mapper,
@@ -58,6 +58,7 @@ class ProfileService {
 		$profile->setStreaming((bool)($data['streaming'] ?? true));
 		$profile->setReasoning((bool)($data['reasoning'] ?? true));
 		$profile->setEnabledTools($this->normalizeTools($data['enabled_tools'] ?? []));
+		$profile->setToolApproval((bool)($data['tool_approval'] ?? true));
 		$profile->setSortOrder($this->mapper->maxSortOrder($userId) + 1);
 
 		// the very first profile is the default, no matter what the client says
@@ -104,6 +105,9 @@ class ProfileService {
 		if (array_key_exists('enabled_tools', $data)) {
 			$profile->setEnabledTools($this->normalizeTools($data['enabled_tools']));
 		}
+		if (array_key_exists('tool_approval', $data)) {
+			$profile->setToolApproval((bool)$data['tool_approval']);
+		}
 
 		$makeDefault = array_key_exists('is_default', $data) && (bool)$data['is_default'];
 		if ($makeDefault) {
@@ -137,6 +141,7 @@ class ProfileService {
 		$copy->setStreaming($source->getStreaming());
 		$copy->setReasoning($source->getReasoning());
 		$copy->setEnabledTools($source->getEnabledTools());
+		$copy->setToolApproval($source->getToolApproval());
 		$copy->setIsDefault(false);
 		$copy->setSortOrder($source->getSortOrder() + 1);
 
@@ -205,6 +210,7 @@ class ProfileService {
 				'streaming' => $raw['streaming'] ?? true,
 				'reasoning' => $raw['reasoning'] ?? true,
 				'enabled_tools' => $raw['enabled_tools'] ?? [],
+				'tool_approval' => $raw['tool_approval'] ?? true,
 				'is_default' => false,
 			]);
 		}
