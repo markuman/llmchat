@@ -28,13 +28,18 @@ export const useConfigStore = defineStore('config', {
 			markdown_rendering: true,
 			show_reasoning: true,
 			default_profile_id: null,
+			searxng_url: '',
 		}),
 		/**
-		 * Base urls known to the CSP of the *currently loaded page*.
+		 * Urls known to the CSP of the *currently loaded page* — connections
+		 * plus the SearXNG instance, since the browser talks to both directly.
 		 * Anything added later needs a reload before it can be reached
 		 * (spec §7.1).
 		 */
-		cspBaseUrls: safeState('connections', []).map((c) => c.base_url),
+		cspBaseUrls: [
+			...safeState('connections', []).map((c) => c.base_url),
+			safeState('settings', {}).searxng_url,
+		].filter(Boolean),
 		reloadRequired: false,
 	}),
 
@@ -146,6 +151,10 @@ export const useConfigStore = defineStore('config', {
 
 		async saveSettings(patch) {
 			this.settings = await api.updateSettings(patch)
+
+			// the browser queries SearXNG directly, so a new instance url is
+			// not in the running page's CSP yet — same rule as connections
+			this.markCspStale(this.settings.searxng_url)
 		},
 	},
 })

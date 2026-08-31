@@ -11,7 +11,6 @@ namespace OCA\LlmChat\Controller;
 use OCA\LlmChat\Exception\BadRequestException;
 use OCA\LlmChat\Service\ProfileService;
 use OCA\LlmChat\Service\WebFetchService;
-use OCA\LlmChat\Service\WebSearchService;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\Attribute\UserRateLimit;
 use OCP\AppFramework\Http\DataResponse;
@@ -19,11 +18,16 @@ use OCP\IRequest;
 use Psr\Log\LoggerInterface;
 
 /**
- * Server-side halves of the browser's agent tools.
+ * Server-side half of the browser's agent tools — only `web_fetch` is left.
+ *
+ * `web_search` used to live here too, but SearXNG can be configured to send
+ * CORS headers, so the browser queries it directly and the server never sees
+ * the search terms. Arbitrary web pages send no such headers, which is why
+ * fetching still has to go through here.
  *
  * Session-authenticated and CSRF-protected like every other route (spec §9) —
- * that alone rules out drive-by use as an anonymous proxy. The rate limits
- * bound what a single authenticated user can relay through the server.
+ * that alone rules out drive-by use as an anonymous proxy. The rate limit
+ * bounds what a single authenticated user can relay through the server.
  */
 class ToolsController extends ApiController {
 	public function __construct(
@@ -31,23 +35,9 @@ class ToolsController extends ApiController {
 		LoggerInterface $logger,
 		?string $userId,
 		private WebFetchService $webFetch,
-		private WebSearchService $webSearch,
 		private ProfileService $profiles,
 	) {
 		parent::__construct($request, $logger, $userId);
-	}
-
-	/**
-	 * @NoAdminRequired
-	 */
-	#[NoAdminRequired]
-	#[UserRateLimit(limit: 30, period: 60)]
-	public function search(string $query): DataResponse {
-		return $this->handle(function () use ($query) {
-			$this->requireTool('web_search');
-
-			return $this->webSearch->search($this->uid(), $query);
-		});
 	}
 
 	/**

@@ -45,9 +45,8 @@ class WebFetchService {
 	/**
 	 * Rotated per request. Ordinary desktop browsers; a server that
 	 * identifies as "Nextcloud-Server-Crawler" gets bot-walled instantly.
-	 * Public because WebSearchService rotates over the same pool.
 	 */
-	public const USER_AGENTS = [
+	private const USER_AGENTS = [
 		// Mac Safari
 		'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15',
 		// Windows Edge

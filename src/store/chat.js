@@ -363,6 +363,8 @@ export const useChatStore = defineStore('chat', {
 
 			const enabledTools = Array.isArray(profile.enabled_tools) ? profile.enabled_tools : []
 			const definitions = toolDefinitionsFor(enabledTools)
+			// web_search runs in the browser and needs the instance url
+			const toolOptions = { searxngUrl: useConfigStore().settings.searxng_url ?? '' }
 
 			// ephemeral working copy — never persisted
 			const loopMessages = [...history]
@@ -412,7 +414,7 @@ export const useChatStore = defineStore('chat', {
 						throw new DOMException('aborted', 'AbortError')
 					}
 
-					const { content, summary } = await executeTool(call, enabledTools)
+					const { content, summary } = await executeTool(call, enabledTools, toolOptions)
 
 					if (target) {
 						if (!target.tool_log) {

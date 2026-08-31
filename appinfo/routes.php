@@ -34,10 +34,10 @@ return [
 		// archive
 		['name' => 'archive#store', 'url' => '/api/v1/archive', 'verb' => 'POST'],
 
-		// agent tools — POST on purpose, even the semantically "read-only"
-		// search: query/url in the body instead of the access log, CSRF check
-		// applies, no cacheable GET with attacker-controlled parameters
-		['name' => 'tools#search', 'url' => '/api/v1/tools/search', 'verb' => 'POST'],
+		// agent tools — only fetching needs the server; search goes from the
+		// browser straight to SearXNG. POST on purpose: the url lands in the
+		// body instead of the access log, the CSRF check applies, and there is
+		// no cacheable GET with attacker-controlled parameters
 		['name' => 'tools#fetch', 'url' => '/api/v1/tools/fetch', 'verb' => 'POST'],
 
 		// settings

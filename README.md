@@ -4,10 +4,9 @@ A chat interface for large language models where **the browser talks directly to
 Nextcloud stores configuration and archived chats — it is never a proxy for the LLM traffic and
 never sees prompts or responses.
 
-One deliberate exception: the optional **web tools** (see below). Browsers cannot fetch foreign
-origins, so when a profile enables them, search queries and fetched URLs go through the Nextcloud
-server. Prompts and responses still do not. The date/time tool is answered entirely in the browser
-and can be enabled on its own.
+One deliberate exception: the optional **`web_fetch` tool** (see below). Arbitrary web pages send
+no CORS headers, so fetching one has to go through the Nextcloud server, which therefore sees the
+URL. Prompts, responses and search queries do not touch it.
 
 The point: because the request originates in the browser, `localhost` resolves from the *user's*
 machine. Your Nextcloud can sit in a datacenter and still talk to an Ollama running on your laptop.
@@ -116,11 +115,11 @@ folder `/LLM Chats`.
 
 Each profile picks its tools individually — they differ in what they cost you:
 
-| tool | who executes it | what leaves the browser |
+| tool | who executes it | does the Nextcloud server see it? |
 |---|---|---|
-| `get_current_datetime` | the browser | nothing |
-| `web_search` | the Nextcloud server | the search query |
-| `web_fetch` | the Nextcloud server | the URL; the page text goes to the model |
+| `get_current_datetime` | the browser | no |
+| `web_search` | the browser → your SearXNG | no |
+| `web_fetch` | the Nextcloud server | yes, the URL |
 
 With at least one enabled, the model runs a small agent loop (at most 3 tool rounds, then a final
 answer without tools). Requires a model trained for tool calling — small or older models will
@@ -128,36 +127,50 @@ either ignore the tools or produce garbage.
 
 How it works, and what it changes:
 
-* **The Nextcloud server performs the network access** for the two web tools. Browsers cannot read
-  foreign origins (CORS), so `web_search` and `web_fetch` are endpoints of this app. Search queries
-  and fetched URLs are therefore visible to the server — this is the one exception to the "server
-  sees nothing" principle, and it is why they are off by default and opt-in per profile. Enabling
-  only date/time keeps everything local.
-* The tool endpoints refuse to work unless the tool is enabled in at least one of your profiles,
-  and the browser rejects tool calls a profile does not allow — models do invent function names.
-* **Tool rounds are ephemeral.** Fetched page content is fed to the model but never stored in the
-  chat history — the next message does not re-send kilobytes of scraped text. A collapsed
-  "tool calls" log on the answer shows what happened.
-* **`web_search` needs a self-hosted SearXNG instance.** Put its URL in the app settings; the
-  instance needs `formats: [html, json]` in its `settings.yml`. Without a URL the tool reports
-  itself as unconfigured — `web_fetch` and `get_current_datetime` still work.
+* **`web_search` goes straight from the browser to your SearXNG instance.** That works because
+  SearXNG can be told to send CORS headers, so the search terms never reach this server. Put the
+  instance URL in the app settings; without it the tool reports itself as unconfigured and the
+  other two keep working.
+
+  Your `settings.yml` needs two things:
+
+  ```yaml
+  server:
+    default_http_headers:
+      Access-Control-Allow-Origin: https://your-nextcloud.example
+  search:
+    formats: [html, json]
+  ```
+
+  Beware `use_default_settings: engines: keep_only:` — it *keeps* engines but does not enable
+  them. Several defaults ship `disabled: true`, so a `keep_only` list can leave you with an
+  instance that answers every query with zero results. Enable them explicitly in an `engines:`
+  block.
 
   There is no hosted default. A DuckDuckGo fallback was tried and removed: its Instant Answer API
   serves encyclopedic entities, not web results. `berlin` returned 10 hits while
   `weather in berlin tomorrow`, `latest news` and `python asyncio tutorial` each returned zero,
   and the model responded to the empty list by inventing URLs to fetch. A tool that silently
   fails at its actual job is worse than one that is absent.
+* **`web_fetch` has to use the server.** Arbitrary sites send no CORS headers, so the browser
+  cannot read their responses — there is no way around a server-side fetch, and the URL is
+  therefore visible to Nextcloud. This is the one remaining exception to "the server sees
+  nothing", and it is why tools are opt-in per profile.
 * The fetch endpoint is intentionally locked down: http/https only, standard ports only, no
   credentials in URLs, SSRF protection via Nextcloud's HTTP client (DNS pinning, local address
   blocking, re-validation on every redirect), 2 MB response cap, text extraction only — the
-  fetched document is parsed as data and never executed or rendered. Rate limited per user.
-  If your SearXNG runs on a LAN address, the admin must set `allow_local_remote_servers`.
-* Outgoing fetches rotate the User-Agent (Safari/macOS, Edge/Windows, Firefox/Linux) —
+  fetched document is parsed as data and never executed or rendered. Rate limited per user, and
+  refused unless the tool is enabled in at least one of your profiles. The browser additionally
+  rejects tool calls a profile does not allow, because models do invent function names.
+* **Tool rounds are ephemeral.** Fetched page content is fed to the model but never stored in the
+  chat history — the next message does not re-send kilobytes of scraped text. A collapsed
+  "tool calls" log on the answer shows what happened.
+* Server-side fetches rotate the User-Agent (Safari/macOS, Edge/Windows, Firefox/Linux) —
   a UA of "Nextcloud-Server-Crawler" hits bot walls instantly.
 
 **Privacy note:** the search query is written by the *model*, derived from your prompt. It can
-contain things you did not intend to send to a search engine. That is inherent to the feature,
-not fixable by this app.
+contain things you did not intend to send to a search engine. Your SearXNG instance sees it, and
+so do the upstream engines it queries. That is inherent to the feature, not fixable by this app.
 
 ## Security
 
@@ -167,9 +180,9 @@ not fixable by this app.
 * Keys are never returned by the CRUD API — only `has_key: true`. They *are* delivered to the browser
   of the owning user, because that is where the request is made. Every user only ever sees their own
   key, which is exactly why the app has no shared admin keys.
-* No LLM prompts or responses ever reach the Nextcloud logs, because the server never sees them.
-  With web tools enabled, failed search/fetch attempts are logged at info level (without page
-  content).
+* No LLM prompts, responses or search queries ever reach the Nextcloud logs, because the server
+  never sees them. With `web_fetch` enabled, failed fetch attempts are logged at info level
+  (URL and error, never page content).
 
 ## What this app does not do (v1)
 

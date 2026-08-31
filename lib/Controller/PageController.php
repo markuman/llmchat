@@ -53,13 +53,16 @@ class PageController extends Controller {
 			'profiles',
 			array_map(static fn ($p) => $p->jsonSerialize(), $this->profiles->findAll($userId))
 		);
-		$this->initialState->provideInitialState('settings', $this->settings->get($userId));
+		$settings = $this->settings->get($userId);
+		$this->initialState->provideInitialState('settings', $settings);
 
 		Util::addScript(Application::APP_ID, Application::APP_ID . '-main');
 		Util::addStyle(Application::APP_ID, Application::APP_ID . '-style');
 
 		$response = new TemplateResponse(Application::APP_ID, 'main');
-		$response->setContentSecurityPolicy($this->buildCsp($connections));
+		$response->setContentSecurityPolicy(
+			$this->buildCsp($connections, (string)$settings['searxng_url'])
+		);
 
 		return $response;
 	}
@@ -69,18 +72,26 @@ class PageController extends Controller {
 	 * user's base urls have to be whitelisted for connect-src — host *and*
 	 * port, since `127.0.0.1` and `127.0.0.1:11434` are distinct sources.
 	 *
+	 * The SearXNG instance is in here for the same reason: the browser queries
+	 * it directly, so the server never sees the search terms.
+	 *
 	 * Note the consequence: this happens at page load. A connection created
 	 * later in the modal is not in the running page's CSP, which is why the
 	 * frontend reloads after a base_url change.
 	 *
 	 * @param \OCA\LlmChat\Db\Connection[] $connections
 	 */
-	private function buildCsp(array $connections): ContentSecurityPolicy {
+	private function buildCsp(array $connections, string $searxngUrl): ContentSecurityPolicy {
 		$csp = new ContentSecurityPolicy();
 
+		$urls = array_map(static fn ($c) => $c->getBaseUrl(), $connections);
+		if ($searxngUrl !== '') {
+			$urls[] = $searxngUrl;
+		}
+
 		$seen = [];
-		foreach ($connections as $connection) {
-			$source = UrlHelper::cspSource($connection->getBaseUrl());
+		foreach ($urls as $url) {
+			$source = UrlHelper::cspSource($url);
 			if ($source === null || isset($seen[$source])) {
 				continue;
 			}

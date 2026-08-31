@@ -85,11 +85,17 @@ class SettingsService {
 			return '';
 		}
 
+		// A schemeless "127.0.0.1:8888" parses as path+port with no host, so it
+		// used to be discarded silently — the field looked saved but was not.
+		// Assume https, except for the loopback host, which rarely has TLS.
+		if (!preg_match('#^[a-z][a-z0-9+.-]*://#i', $url)) {
+			$isLoopback = (bool)preg_match('#^(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)(:|/|$)#i', $url);
+			$url = ($isLoopback ? 'http://' : 'https://') . $url;
+		}
+
 		$parts = parse_url($url);
 		$scheme = strtolower((string)($parts['scheme'] ?? ''));
 		if ($parts === false || !isset($parts['host']) || ($scheme !== 'http' && $scheme !== 'https')) {
-			// silently storing garbage would surface as a confusing search
-			// error much later; empty means "not configured" and fails clearly
 			return '';
 		}
 
