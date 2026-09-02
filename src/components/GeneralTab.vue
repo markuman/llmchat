@@ -1,11 +1,13 @@
 <template>
 	<!--
-		Spec §4.1: deliberately not registered in Nextcloud's settings framework.
-		A cog in the navigation footer, like the Mail app, with nothing but
-		toggles and one button.
+		Issue #2: the navigation footer used to hold these. Settings that
+		change what a request looks like belong next to connections and
+		profiles, not in a drawer that covers the chat list.
 	-->
-	<NcAppNavigationSettings :name="t('llmchat', 'Settings')">
-		<div class="drawer">
+	<div class="tab">
+		<section class="tab__section">
+			<h3 class="tab__title">{{ t('llmchat', 'Chat') }}</h3>
+
 			<NcSelect
 				v-if="config.hasProfiles"
 				v-model="defaultProfile"
@@ -13,28 +15,9 @@
 				:options="profileOptions"
 				:clearable="false"
 				label="label" />
-
-			<div class="drawer__field">
-				<label class="drawer__label" for="llm-archive-folder">
-					{{ t('llmchat', 'Archive folder') }}
-				</label>
-				<div class="drawer__row">
-					<input
-						id="llm-archive-folder"
-						v-model="archiveFolder"
-						type="text"
-						class="drawer__input"
-						@blur="saveFolder">
-					<NcButton
-						:aria-label="t('llmchat', 'Pick folder')"
-						variant="tertiary"
-						@click="pickFolder">
-						<template #icon>
-							<Folder :size="20" />
-						</template>
-					</NcButton>
-				</div>
-			</div>
+			<p class="tab__hint">
+				{{ t('llmchat', 'Used for every new chat. Existing chats keep the profile they were started with.') }}
+			</p>
 
 			<NcCheckboxRadioSwitch
 				:model-value="config.settings.compact_mode"
@@ -60,62 +43,98 @@
 				@update:model-value="save('show_reasoning', $event)">
 				{{ t('llmchat', 'Display reasoning blocks') }}
 			</NcCheckboxRadioSwitch>
-			<p class="drawer__hint">
+			<p class="tab__hint">
 				{{ t('llmchat', 'Display only — the tokens are still generated. Turn reasoning off in the profile to actually save them.') }}
+			</p>
+		</section>
+
+		<section class="tab__section">
+			<h3 class="tab__title">{{ t('llmchat', 'Tools') }}</h3>
+
+			<!-- issue #3: the agent loop's budget, no longer hardcoded -->
+			<label class="tab__label" for="llm-tool-rounds">
+				{{ t('llmchat', 'Tool rounds per answer') }}
+			</label>
+			<div class="tab__slider">
+				<input
+					id="llm-tool-rounds"
+					v-model.number="toolRounds"
+					type="range"
+					:min="minToolRounds"
+					:max="maxToolRounds"
+					step="1"
+					class="tab__range"
+					@change="saveToolRounds">
+				<output class="tab__value" for="llm-tool-rounds">{{ toolRounds }}</output>
+			</div>
+			<p class="tab__hint">
+				{{ t('llmchat', 'How often the model may call tools before it has to answer. Higher values let it chain a search into a page fetch, at the cost of latency and tokens. The last round always runs without tools.') }}
 			</p>
 
 			<!-- SearXNG is the only search backend; without a URL, web search is off -->
-			<div class="drawer__field">
-				<label class="drawer__label" for="llm-searxng-url">
-					{{ t('llmchat', 'SearXNG URL (for web search)') }}
-				</label>
-				<input
-					id="llm-searxng-url"
-					v-model="searxngUrl"
-					type="url"
-					class="drawer__input"
-					placeholder="https://searx.example.org"
-					@blur="saveSearxngUrl">
-				<p class="drawer__hint">
-					{{ searxngHint }}
-				</p>
-			</div>
+			<label class="tab__label" for="llm-searxng-url">
+				{{ t('llmchat', 'SearXNG URL (for web search)') }}
+			</label>
+			<input
+				id="llm-searxng-url"
+				v-model="searxngUrl"
+				type="url"
+				class="tab__input"
+				placeholder="https://searx.example.org"
+				@blur="saveSearxngUrl">
+			<p class="tab__hint">
+				{{ searxngHint }}
+			</p>
+		</section>
 
-			<NcButton wide @click="$emit('open-manager')">
-				<template #icon>
-					<Tune :size="20" />
-				</template>
-				{{ t('llmchat', 'Manage connections & profiles') }}
-			</NcButton>
-		</div>
-	</NcAppNavigationSettings>
+		<section class="tab__section">
+			<h3 class="tab__title">{{ t('llmchat', 'Archive') }}</h3>
+
+			<label class="tab__label" for="llm-archive-folder">
+				{{ t('llmchat', 'Archive folder') }}
+			</label>
+			<div class="tab__row">
+				<input
+					id="llm-archive-folder"
+					v-model="archiveFolder"
+					type="text"
+					class="tab__input"
+					@blur="saveFolder">
+				<NcButton
+					:aria-label="t('llmchat', 'Pick folder')"
+					:title="t('llmchat', 'Pick folder')"
+					@click="pickFolder">
+					<template #icon>
+						<Folder :size="20" />
+					</template>
+				</NcButton>
+			</div>
+			<p class="tab__hint">
+				{{ t('llmchat', 'Archived chats are written there as Markdown files. The local copy stays in this browser.') }}
+			</p>
+		</section>
+	</div>
 </template>
 
 <script>
 import { getFilePickerBuilder, showError } from '@nextcloud/dialogs'
 import Folder from 'vue-material-design-icons/Folder.vue'
-import Tune from 'vue-material-design-icons/Tune.vue'
 
-import NcAppNavigationSettings from '@nextcloud/vue/components/NcAppNavigationSettings'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
 
-import { useConfigStore } from '../store/config.js'
+import { MAX_TOOL_ROUNDS, MIN_TOOL_ROUNDS, useConfigStore } from '../store/config.js'
 
 export default {
-	name: 'SettingsDrawer',
+	name: 'GeneralTab',
 
 	components: {
 		Folder,
-		NcAppNavigationSettings,
 		NcButton,
 		NcCheckboxRadioSwitch,
 		NcSelect,
-		Tune,
 	},
-
-	emits: ['open-manager'],
 
 	setup() {
 		return { config: useConfigStore() }
@@ -123,8 +142,11 @@ export default {
 
 	data() {
 		return {
-			archiveFolder: this.config?.settings?.archive_folder ?? '/LLM Chats',
-			searxngUrl: this.config?.settings?.searxng_url ?? '',
+			archiveFolder: '/LLM Chats',
+			searxngUrl: '',
+			toolRounds: MIN_TOOL_ROUNDS,
+			minToolRounds: MIN_TOOL_ROUNDS,
+			maxToolRounds: MAX_TOOL_ROUNDS,
 		}
 	},
 
@@ -136,6 +158,7 @@ export default {
 		defaultProfile: {
 			get() {
 				const current = this.config.defaultProfile
+
 				return current ? { id: current.id, label: current.name } : null
 			},
 			set(option) {
@@ -155,6 +178,7 @@ export default {
 	created() {
 		this.archiveFolder = this.config.settings.archive_folder
 		this.searxngUrl = this.config.settings.searxng_url
+		this.toolRounds = this.config.toolRounds
 	},
 
 	methods: {
@@ -164,6 +188,16 @@ export default {
 			} catch (error) {
 				showError(error.message)
 			}
+		},
+
+		async saveToolRounds() {
+			if (this.toolRounds === this.config.toolRounds) {
+				return
+			}
+
+			await this.save('max_tool_rounds', this.toolRounds)
+			// the backend clamps; show what was actually stored
+			this.toolRounds = this.config.toolRounds
 		},
 
 		async saveFolder() {
@@ -217,39 +251,63 @@ export default {
 </script>
 
 <style scoped>
-.drawer {
+.tab {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
-	padding: 4px 0;
+	gap: 20px;
 }
 
-.drawer__field {
+.tab__section {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
+	gap: 4px;
+	max-width: 520px;
 }
 
-.drawer__label {
+.tab__title {
+	margin: 0 0 4px;
+	font-size: 1.05em;
+}
+
+.tab__label {
+	margin-top: 8px;
+	font-size: 0.9em;
+	color: var(--color-text-maxcontrast);
+}
+
+.tab__hint {
+	margin: 2px 0 0;
 	font-size: 0.85em;
+	line-height: 1.4;
 	color: var(--color-text-maxcontrast);
 }
 
-.drawer__hint {
-	margin: -4px 0 0;
-	font-size: 0.8em;
-	line-height: 1.35;
-	color: var(--color-text-maxcontrast);
-}
-
-.drawer__row {
+.tab__row {
 	display: flex;
 	align-items: center;
-	gap: 4px;
+	gap: 6px;
 }
 
-.drawer__input {
+.tab__input {
 	flex: 1 1 auto;
 	min-width: 0;
+	width: 100%;
+}
+
+.tab__slider {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.tab__range {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.tab__value {
+	min-width: 2ch;
+	font-weight: 600;
+	text-align: end;
 }
 </style>

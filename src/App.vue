@@ -1,13 +1,16 @@
 <template>
 	<NcContent app-name="llmchat" :class="{ 'llm-compact': config.settings.compact_mode }">
-		<ChatNavigation @open-manager="managerOpen = true" />
+		<ChatNavigation @open-manager="openManager" />
 
 		<NcAppContent>
-			<SetupHint v-if="!config.hasProfiles" @open-manager="managerOpen = true" />
+			<SetupHint v-if="!config.hasProfiles" @open-manager="openManager(null)" />
 			<ChatView v-else />
 		</NcAppContent>
 
-		<ManagerModal v-if="managerOpen" @close="managerOpen = false" />
+		<ManagerModal
+			v-if="managerOpen"
+			:initial-tab="managerTab"
+			@close="managerOpen = false" />
 
 		<!-- at app level: the agent loop keeps running when the chat view scrolls -->
 		<ToolApproval v-if="chat.pendingApproval" />
@@ -48,11 +51,22 @@ export default {
 	data() {
 		return {
 			managerOpen: false,
+			managerTab: null,
 		}
 	},
 
 	mounted() {
 		this.chat.init()
+	},
+
+	methods: {
+		/**
+		 * @param {string|null} tab tab to land on, null lets the modal decide
+		 */
+		openManager(tab = null) {
+			this.managerTab = typeof tab === 'string' ? tab : null
+			this.managerOpen = true
+		},
 	},
 }
 </script>

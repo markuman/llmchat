@@ -38,6 +38,18 @@ export const useChatStore = defineStore('chat', {
 		 * track it.
 		 */
 		pendingApproval: null,
+		/**
+		 * Chat search (issue #6). `token` guards against a slow scan for an
+		 * older query overwriting the results of a newer one.
+		 */
+		search: {
+			query: '',
+			running: false,
+			hits: [],
+			token: 0,
+		},
+		/** Message the search jumped to; ChatView scrolls to it and flashes it. */
+		highlightId: null,
 	}),
 
 	getters: {
@@ -84,6 +96,51 @@ export const useChatStore = defineStore('chat', {
 
 			return groups.filter((group) => group.chats.length > 0)
 		},
+
+		searchActive: (state) => state.search.query.trim() !== '',
+
+		searchTerms: (state) => state.search.query.toLowerCase().split(/\s+/).filter(Boolean),
+
+		/**
+		 * Hits grouped per chat, newest chat first. A chat whose *title*
+		 * matches shows up even when none of its messages do — that is how
+		 * people look for a conversation they already named.
+		 */
+		searchResults(state) {
+			const terms = this.searchTerms
+			const groups = new Map()
+
+			const groupFor = (chat) => {
+				if (!groups.has(chat.id)) {
+					groups.set(chat.id, { chat, hits: [], titleMatch: false })
+				}
+
+				return groups.get(chat.id)
+			}
+
+			state.chats.forEach((chat) => {
+				const title = (chat.title ?? '').toLowerCase()
+				if (terms.length > 0 && terms.every((term) => title.includes(term))) {
+					groupFor(chat).titleMatch = true
+				}
+			})
+
+			state.search.hits.forEach((hit) => {
+				const chat = state.chats.find((c) => c.id === hit.chat_id)
+				// messages of a deleted chat cannot happen, but a stale hit list
+				// during a delete can
+				if (chat) {
+					groupFor(chat).hits.push(hit)
+				}
+			})
+
+			return [...groups.values()]
+				.map((group) => ({
+					...group,
+					hits: [...group.hits].sort((a, b) => a.ts - b.ts),
+				}))
+				.sort((a, b) => (b.chat.updated_at ?? 0) - (a.chat.updated_at ?? 0))
+		},
 	},
 
 	actions: {
@@ -115,14 +172,95 @@ export const useChatStore = defineStore('chat', {
 			}
 		},
 
-		async openChat(id) {
+		/**
+		 * @param {string} id chat to open
+		 * @param {object} options `highlight` marks a message for the view to
+		 *   scroll to; set it here rather than afterwards so the view does not
+		 *   first jump to the bottom and then to the message
+		 */
+		async openChat(id, { highlight = null } = {}) {
 			this.abort()
+			this.highlightId = null
 			this.activeId = id
 			this.messages = await db.listMessages(id)
+
+			// set last, and only now: the view scrolls to the highlighted
+			// message on nextTick, which is only useful once the messages it
+			// has to scroll through are actually in the DOM
+			this.highlightId = highlight
+		},
+
+		/**
+		 * Runs a search over the local history. Callers debounce.
+		 *
+		 * @param {string} query whitespace-separated terms
+		 */
+		async runSearch(query) {
+			this.search.query = query
+
+			if (query.trim() === '') {
+				this.search.hits = []
+				this.search.running = false
+
+				return
+			}
+
+			const token = ++this.search.token
+			this.search.running = true
+
+			try {
+				const hits = await db.searchMessages(query)
+				// a later query already started — its results win
+				if (token === this.search.token) {
+					this.search.hits = hits
+				}
+			} catch (error) {
+				if (token === this.search.token) {
+					this.search.hits = []
+					this.error = error.message
+				}
+			} finally {
+				if (token === this.search.token) {
+					this.search.running = false
+				}
+			}
+		},
+
+		clearSearch() {
+			this.search.token++
+			this.search.query = ''
+			this.search.hits = []
+			this.search.running = false
+		},
+
+		/**
+		 * Opens the chat a hit belongs to and marks the message so the view can
+		 * scroll to it.
+		 *
+		 * @param {object} hit entry from `searchResults`
+		 */
+		async openHit(hit) {
+			const target = hit.message_id ?? null
+
+			if (hit.chat_id !== this.activeId) {
+				await this.openChat(hit.chat_id, { highlight: target })
+				return
+			}
+
+			// clicking the same hit twice must flash again, and a watcher does
+			// not fire when the value ends up unchanged — so drop it first and
+			// let the current tick flush
+			if (this.highlightId === target) {
+				this.highlightId = null
+				await new Promise((resolve) => setTimeout(resolve, 0))
+			}
+
+			this.highlightId = target
 		},
 
 		async newChat() {
 			const config = useConfigStore()
+			this.clearSearch()
 			const chat = await db.createChat({ profileId: config.defaultProfile?.id ?? null })
 
 			this.chats = [chat, ...this.chats]
@@ -165,6 +303,7 @@ export const useChatStore = defineStore('chat', {
 		async deleteChat(id) {
 			await db.deleteChat(id)
 			this.chats = this.chats.filter((c) => c.id !== id)
+			this.search.hits = this.search.hits.filter((hit) => hit.chat_id !== id)
 
 			if (this.activeId === id) {
 				this.activeId = null
@@ -213,10 +352,21 @@ export const useChatStore = defineStore('chat', {
 
 		/**
 		 * Regenerates the last assistant answer (spec §5).
+		 *
+		 * With a profile id, the answer is produced by that profile — and the
+		 * chat switches to it for good. Anything else would be a hidden mode:
+		 * the composer would still show the old profile while the next message
+		 * silently went somewhere else.
+		 *
+		 * @param {number|null} profileId profile to answer with, or null for the current one
 		 */
-		async regenerate() {
+		async regenerate(profileId = null) {
 			if (this.generating) {
 				return
+			}
+
+			if (profileId && profileId !== this.activeChat?.profile_id) {
+				await this.setProfile(profileId)
 			}
 
 			const lastAssistant = [...this.messages].reverse().find((m) => m.role === 'assistant')
@@ -389,13 +539,14 @@ export const useChatStore = defineStore('chat', {
 		 * stays clean, and the next completion does not re-send kilobytes of
 		 * fetched page text. What happened is kept in `tool_log` for display.
 		 *
-		 * Bounded at MAX_TOOL_ROUNDS: a model that keeps calling tools gets
-		 * one final round without tools instead of looping forever.
+		 * Bounded at the configured tool budget (3–7, general settings): a model
+		 * that keeps calling tools gets one final round without tools instead
+		 * of looping forever.
 		 *
 		 * @return {Promise<{content: string, usage: object|null}>} final completion
 		 */
 		async runAgentLoop({ connection, profile, history, placeholder }) {
-			const MAX_TOOL_ROUNDS = 3
+			const maxRounds = useConfigStore().toolRounds
 
 			const onDelta = ({ content, reasoning }) => {
 				const target = this.messages.find((m) => m.id === placeholder.id)
@@ -416,8 +567,8 @@ export const useChatStore = defineStore('chat', {
 			const loopMessages = [...history]
 			let result = null
 
-			for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
-				const lastRound = round === MAX_TOOL_ROUNDS
+			for (let round = 0; round <= maxRounds; round++) {
+				const lastRound = round === maxRounds
 				const tools = !lastRound && definitions.length > 0 ? definitions : undefined
 
 				result = await streamCompletion({

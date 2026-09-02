@@ -1,22 +1,19 @@
 <template>
-	<!-- Spec §4.2: one modal, two tabs. -->
+	<!-- Spec §4.2, extended by issue #2: one modal, three tabs. -->
 	<NcModal
 		size="large"
-		:name="t('llmchat', 'Connections & profiles')"
+		:name="t('llmchat', 'Settings')"
 		@close="$emit('close')">
 		<div class="manager">
-			<h2 class="manager__title">{{ t('llmchat', 'Connections & profiles') }}</h2>
+			<h2 class="manager__title">{{ t('llmchat', 'Settings') }}</h2>
 
 			<div class="manager__tabs">
 				<NcButton
-					:variant="tab === 'connections' ? 'primary' : 'tertiary'"
-					@click="tab = 'connections'">
-					{{ t('llmchat', 'Connections') }}
-				</NcButton>
-				<NcButton
-					:variant="tab === 'profiles' ? 'primary' : 'tertiary'"
-					@click="tab = 'profiles'">
-					{{ t('llmchat', 'Profiles') }}
+					v-for="entry in tabs"
+					:key="entry.id"
+					:variant="tab === entry.id ? 'primary' : 'tertiary'"
+					@click="tab = entry.id">
+					{{ entry.label }}
 				</NcButton>
 			</div>
 
@@ -27,7 +24,8 @@
 				</NcButton>
 			</NcNoteCard>
 
-			<ConnectionsTab v-if="tab === 'connections'" />
+			<GeneralTab v-if="tab === 'general'" />
+			<ConnectionsTab v-else-if="tab === 'connections'" />
 			<ProfilesTab v-else />
 		</div>
 	</NcModal>
@@ -39,6 +37,7 @@ import NcModal from '@nextcloud/vue/components/NcModal'
 import NcNoteCard from '@nextcloud/vue/components/NcNoteCard'
 
 import ConnectionsTab from './ConnectionsTab.vue'
+import GeneralTab from './GeneralTab.vue'
 import ProfilesTab from './ProfilesTab.vue'
 import { useConfigStore } from '../store/config.js'
 
@@ -47,10 +46,19 @@ export default {
 
 	components: {
 		ConnectionsTab,
+		GeneralTab,
 		NcButton,
 		NcModal,
 		NcNoteCard,
 		ProfilesTab,
+	},
+
+	props: {
+		/** Which tab to land on — 'general', 'connections' or 'profiles'. */
+		initialTab: {
+			type: String,
+			default: null,
+		},
 	},
 
 	emits: ['close'],
@@ -61,12 +69,24 @@ export default {
 
 	data() {
 		return {
-			tab: this.config?.hasConnections ? 'profiles' : 'connections',
+			tab: 'general',
 		}
 	},
 
+	computed: {
+		tabs() {
+			return [
+				{ id: 'general', label: this.t('llmchat', 'General') },
+				{ id: 'connections', label: this.t('llmchat', 'Connections') },
+				{ id: 'profiles', label: this.t('llmchat', 'Profiles') },
+			]
+		},
+	},
+
 	created() {
-		this.tab = this.config.hasConnections ? 'profiles' : 'connections'
+		// an unconfigured app has nothing to set up on the general tab yet
+		this.tab = this.initialTab
+			?? (this.config.hasConnections ? 'general' : 'connections')
 	},
 
 	methods: {

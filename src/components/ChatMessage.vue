@@ -1,5 +1,8 @@
 <template>
-	<div class="message" :class="`message--${message.role}`">
+	<div
+		class="message"
+		:class="[`message--${message.role}`, { 'message--highlight': highlighted }]"
+		:data-message-id="message.id">
 		<div class="message__meta">
 			<span class="message__role">{{ roleLabel }}</span>
 			<span v-if="message.model" class="message__model">{{ message.model }}</span>
@@ -27,7 +30,7 @@
 					</template>
 				</NcButton>
 				<NcButton
-					v-if="!isUser && isLast"
+					v-if="canRegenerate"
 					:aria-label="t('llmchat', 'Regenerate response')"
 					:title="t('llmchat', 'Regenerate response')"
 					:disabled="chat.generating"
@@ -37,6 +40,30 @@
 						<Refresh :size="16" />
 					</template>
 				</NcButton>
+				<!--
+					Issue #10: regenerating with another profile is the point of
+					keeping several. Picking one switches the chat over, so the
+					composer and the next message follow along.
+				-->
+				<NcActions
+					v-if="canRegenerate && otherProfiles.length > 0"
+					:aria-label="t('llmchat', 'Regenerate with another profile')"
+					:disabled="chat.generating"
+					force-menu>
+					<template #icon>
+						<Sync :size="16" />
+					</template>
+					<NcActionButton
+						v-for="profile in otherProfiles"
+						:key="profile.id"
+						:close-after-click="true"
+						@click="chat.regenerate(profile.id)">
+						<template #icon>
+							<Robot :size="20" />
+						</template>
+						{{ profile.name }} — {{ profile.model }}
+					</NcActionButton>
+				</NcActions>
 			</div>
 		</div>
 
@@ -86,7 +113,11 @@
 import ContentCopy from 'vue-material-design-icons/ContentCopy.vue'
 import Pencil from 'vue-material-design-icons/Pencil.vue'
 import Refresh from 'vue-material-design-icons/Refresh.vue'
+import Robot from 'vue-material-design-icons/Robot.vue'
+import Sync from 'vue-material-design-icons/Sync.vue'
 
+import NcActionButton from '@nextcloud/vue/components/NcActionButton'
+import NcActions from '@nextcloud/vue/components/NcActions'
 import NcButton from '@nextcloud/vue/components/NcButton'
 
 import { renderMarkdown, renderPlain } from '../services/markdown.js'
@@ -98,15 +129,25 @@ export default {
 
 	components: {
 		ContentCopy,
+		NcActionButton,
+		NcActions,
 		NcButton,
 		Pencil,
 		Refresh,
+		Robot,
+		Sync,
 	},
 
 	props: {
 		message: {
 			type: Object,
 			required: true,
+		},
+
+		/** jumped to from the search — flash it so the eye finds it */
+		highlighted: {
+			type: Boolean,
+			default: false,
 		},
 	},
 
@@ -139,6 +180,17 @@ export default {
 
 		roleLabel() {
 			return this.isUser ? this.t('llmchat', 'You') : this.t('llmchat', 'Assistant')
+		},
+
+		canRegenerate() {
+			return !this.isUser && this.isLast && !this.message.pending
+		},
+
+		/** Profiles other than the chat's current one, for a second opinion. */
+		otherProfiles() {
+			const current = this.chat.activeProfile?.id
+
+			return this.config.usableProfiles.filter((p) => p.id !== current)
 		},
 
 		showReasoning() {
@@ -190,6 +242,16 @@ export default {
 
 .message--user {
 	background-color: var(--color-background-hover);
+}
+
+.message--highlight {
+	animation: flash 1.4s ease-out 2;
+	outline: 2px solid var(--color-primary-element);
+}
+
+@keyframes flash {
+	0% { background-color: var(--color-primary-element-light); }
+	100% { background-color: transparent; }
 }
 
 .message__meta {

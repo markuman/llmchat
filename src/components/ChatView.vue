@@ -31,6 +31,7 @@
 				v-for="message in chat.messages"
 				:key="message.id"
 				:message="message"
+				:highlighted="message.id === chat.highlightId"
 				@edit="onEdit" />
 		</div>
 
@@ -75,6 +76,7 @@ export default {
 		return {
 			/** stop yanking the view down while the user is reading scrollback */
 			stickToBottom: true,
+			highlightTimer: null,
 		}
 	},
 
@@ -103,6 +105,21 @@ export default {
 			this.stickToBottom = true
 			this.$nextTick(this.scrollToBottom)
 		},
+
+		/** a search hit was opened: go there instead of to the bottom */
+		'chat.highlightId'(id) {
+			clearTimeout(this.highlightTimer)
+			if (!id) {
+				return
+			}
+
+			this.stickToBottom = false
+			this.$nextTick(() => this.scrollToMessage(id))
+			// the flash has done its job after a few seconds
+			this.highlightTimer = setTimeout(() => {
+				this.chat.highlightId = null
+			}, 4000)
+		},
 	},
 
 	mounted() {
@@ -111,6 +128,7 @@ export default {
 	},
 
 	beforeUnmount() {
+		clearTimeout(this.highlightTimer)
 		document.removeEventListener('keydown', this.onKeydown)
 		document.removeEventListener('click', this.onCopyClick)
 	},
@@ -123,6 +141,13 @@ export default {
 			}
 
 			this.stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+		},
+
+		scrollToMessage(id) {
+			// the messages are rendered by v-for, so no ref list — one query
+			// against the scroller is cheaper than maintaining refs
+			const el = this.$refs.scroller?.querySelector(`[data-message-id="${id}"]`)
+			el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
 		},
 
 		scrollToBottom() {

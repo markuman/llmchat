@@ -165,6 +165,102 @@ export async function deleteMessages(ids) {
 	})
 }
 
+/**
+ * Cuts a readable excerpt around a match.
+ *
+ * @param {string} content full message text
+ * @param {number} at index of the match
+ * @param {number} length length of the matched term
+ * @return {string} excerpt with ellipses where it was cut
+ */
+function excerpt(content, at, length) {
+	const before = 50
+	const after = 110
+
+	const start = Math.max(0, at - before)
+	const end = Math.min(content.length, at + length + after)
+	// newlines and code indentation would make the list jump around
+	const text = content.slice(start, end).replace(/\s+/g, ' ').trim()
+
+	return `${start > 0 ? '…' : ''}${text}${end < content.length ? '…' : ''}`
+}
+
+/**
+ * Full-text search over all stored messages (issue #6).
+ *
+ * IndexedDB has no text index, so this is a cursor scan: every message is
+ * visited once, inside a single read transaction, and the scan stops as soon
+ * as `limit` hits are found. That is deliberate — the alternative is
+ * maintaining an inverted index on every write, which costs storage and a
+ * migration to fix chats written before it existed. A scan over a few thousand
+ * messages takes single-digit milliseconds, which is well below the debounce
+ * the UI already applies.
+ *
+ * All terms must appear (AND); the excerpt is cut around the first one.
+ *
+ * @param {string} query whitespace-separated terms
+ * @param {object} options `limit` caps the number of hits
+ * @return {Promise<Array<object>>} hits, in storage order
+ */
+export async function searchMessages(query, { limit = 60 } = {}) {
+	const terms = query.toLowerCase().split(/\s+/).filter(Boolean)
+	if (terms.length === 0) {
+		return []
+	}
+
+	const db = await openDb()
+
+	return new Promise((resolve, reject) => {
+		const transaction = db.transaction(['messages'], 'readonly')
+		const request = transaction.objectStore('messages').openCursor()
+		const hits = []
+
+		request.onsuccess = () => {
+			const cursor = request.result
+			if (!cursor || hits.length >= limit) {
+				resolve(hits)
+				return
+			}
+
+			const message = cursor.value
+			const content = typeof message.content === 'string' ? message.content : ''
+			const haystack = content.toLowerCase()
+
+			// the excerpt is centred on whichever term appears first
+			let first = -1
+			let centreLength = 0
+
+			const matchesAll = terms.every((term) => {
+				const at = haystack.indexOf(term)
+				if (at === -1) {
+					return false
+				}
+				if (first === -1 || at < first) {
+					first = at
+					centreLength = term.length
+				}
+
+				return true
+			})
+
+			if (matchesAll) {
+				hits.push({
+					chat_id: message.chat_id,
+					message_id: message.id,
+					role: message.role,
+					ts: message.ts ?? 0,
+					excerpt: excerpt(content, first, centreLength),
+				})
+			}
+
+			cursor.continue()
+		}
+
+		request.onerror = () => reject(request.error)
+		transaction.onabort = () => reject(transaction.error)
+	})
+}
+
 export async function getCachedModels(connectionId) {
 	const entry = await tx(['models'], 'readonly', (t) =>
 		req(t.objectStore('models').get(connectionId)),

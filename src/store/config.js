@@ -9,6 +9,13 @@ import { loadState } from '@nextcloud/initial-state'
 import { defineStore } from 'pinia'
 import { api } from '../services/api.js'
 
+/**
+ * Bounds of the agent loop's tool budget, mirrored from SettingsService so the
+ * slider and the loop cannot disagree.
+ */
+export const MIN_TOOL_ROUNDS = 3
+export const MAX_TOOL_ROUNDS = 7
+
 function safeState(key, fallback) {
 	try {
 		return loadState('llmchat', key, fallback)
@@ -29,6 +36,7 @@ export const useConfigStore = defineStore('config', {
 			show_reasoning: true,
 			default_profile_id: null,
 			searxng_url: '',
+			max_tool_rounds: MIN_TOOL_ROUNDS,
 		}),
 		/**
 		 * Urls known to the CSP of the *currently loaded page* — connections
@@ -46,6 +54,20 @@ export const useConfigStore = defineStore('config', {
 	getters: {
 		hasConnections: (state) => state.connections.length > 0,
 		hasProfiles: (state) => state.profiles.length > 0,
+
+		/**
+		 * Tool rounds the agent loop may spend. Clamped here rather than at
+		 * the call site: a stored value from an older version, or from a
+		 * hand-edited config, must not unbound the loop.
+		 */
+		toolRounds: (state) => {
+			const value = Number(state.settings.max_tool_rounds ?? MIN_TOOL_ROUNDS)
+			if (!Number.isFinite(value)) {
+				return MIN_TOOL_ROUNDS
+			}
+
+			return Math.max(MIN_TOOL_ROUNDS, Math.min(MAX_TOOL_ROUNDS, Math.round(value)))
+		},
 
 		sortedProfiles: (state) =>
 			[...state.profiles].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),

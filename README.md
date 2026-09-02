@@ -67,14 +67,14 @@ first. On by default, off if you like living dangerously.
 <tr><td valign="top">
 
 ### 💾 Chats live in your browser
-IndexedDB, not the server. Archive the ones worth keeping as Markdown into your Nextcloud files —
-with full-text search, versioning and sync for free.
+IndexedDB, not the server. Searchable in place, and the ones worth keeping archive as Markdown
+into your Nextcloud files — versioning and sync for free.
 
 </td><td valign="top">
 
 ### 🎨 Feels like Nextcloud
 Native components, follows your theme light or dark, Markdown with syntax highlighting,
-streaming responses, stop button, edit-and-retry, regenerate.
+streaming responses, stop button, edit-and-retry, regenerate — with any profile you like.
 
 </td></tr>
 </table>
@@ -177,8 +177,9 @@ Off by default. Enabled per profile, individually — because they cost you very
 | 🌐 `web_fetch` | Nextcloud server | the URL | **yes** |
 | ☁️ `nc_read` | browser → this Nextcloud | nothing | **yes** |
 
-With at least one enabled, the model runs a small agent loop — max 3 tool rounds, then a final
-answer without tools. **Needs a model trained for tool calling**; small or older models will
+With at least one enabled, the model runs a small agent loop — 3 to 7 tool rounds (a slider in
+the general settings, default 3), then a final answer without tools. **Needs a model trained for
+tool calling**; small or older models will
 either ignore them or produce garbage. Tool rounds are ephemeral: fetched content goes to the
 model but never into your chat history, so the next message doesn't re-send kilobytes of scraped
 text. A collapsible log on each answer shows what happened.

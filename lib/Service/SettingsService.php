@@ -12,6 +12,10 @@ use OCA\LlmChat\AppInfo\Application;
 use OCP\IConfig;
 
 class SettingsService {
+	/** Tool rounds the agent loop may spend before it has to answer. */
+	public const MIN_TOOL_ROUNDS = 3;
+	public const MAX_TOOL_ROUNDS = 7;
+
 	private const DEFAULTS = [
 		'archive_folder' => '/LLM Chats',
 		'archive_target' => 'files',
@@ -20,6 +24,7 @@ class SettingsService {
 		'show_reasoning' => true,
 		'default_profile_id' => null,
 		'searxng_url' => '',
+		'max_tool_rounds' => self::MIN_TOOL_ROUNDS,
 	];
 
 	public function __construct(
@@ -65,6 +70,7 @@ class SettingsService {
 		return match ($key) {
 			'compact_mode', 'markdown_rendering', 'show_reasoning' => $raw === '1',
 			'default_profile_id' => (int)$raw,
+			'max_tool_rounds' => $this->clampToolRounds((int)$raw),
 			default => $raw,
 		};
 	}
@@ -75,8 +81,18 @@ class SettingsService {
 			'archive_folder' => $this->normalizeFolder((string)$value),
 			'archive_target' => in_array($value, ['files'], true) ? (string)$value : 'files',
 			'searxng_url' => $this->normalizeSearxngUrl((string)$value),
+			'max_tool_rounds' => (string)$this->clampToolRounds((int)$value),
 			default => (string)$value,
 		};
+	}
+
+	/**
+	 * The browser runs the agent loop, so this bound is advisory — but storing
+	 * a sane value keeps a hand-edited config from turning into an endless
+	 * tool loop, and the front end reads the same range.
+	 */
+	private function clampToolRounds(int $rounds): int {
+		return max(self::MIN_TOOL_ROUNDS, min(self::MAX_TOOL_ROUNDS, $rounds));
 	}
 
 	private function normalizeSearxngUrl(string $url): string {

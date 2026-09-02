@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+## 2.0.0 – 2026-09-02
+
+### Added
+- Full-text search over the local chat history (#6). Searches titles and message bodies, groups
+  hits per chat, and jumps to the matching message. IndexedDB has no text index, so this is a
+  cursor scan inside one read transaction, stopping at 60 hits and debounced by 180 ms — an
+  inverted index would cost storage on every write plus a migration for everything written before
+  it, and the scan is single-digit milliseconds at realistic history sizes.
+- Regenerate an answer with a different profile (#10). The menu next to the regenerate button lists
+  the other usable profiles; picking one switches the chat over for good, because a hidden mode
+  where the composer shows one profile and the next message goes to another is worse than an
+  explicit switch.
+- General settings tab in the modal (#2), with the settings that used to live in the navigation
+  drawer plus the new tool round slider.
+- Configurable tool budget for the agent loop (#3): a slider from 3 to 7 rounds, default 3. The
+  last round always runs without tools, so an answer is guaranteed. The value is clamped on both
+  sides — a hand-edited config cannot unbound the loop.
+
+### Changed
+- **Breaking (UI):** the navigation footer no longer contains settings, only a cog that opens the
+  modal (#2). A 300 px drawer was the wrong place for a path picker, a URL field and a slider, and
+  it covered the chat list exactly while it was needed.
+
 ## 1.6.0 – 2026-08-31
 
 ### Added
