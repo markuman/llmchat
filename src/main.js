@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
-import { t, n } from '@nextcloud/l10n'
+import { n, t } from '@nextcloud/l10n'
 import { createPinia } from 'pinia'
 import { createApp } from 'vue'
 import App from './App.vue'

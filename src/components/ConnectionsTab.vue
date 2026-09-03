@@ -45,7 +45,7 @@
 				v-model="form.base_url"
 				:label="t('llmchat', 'Base URL')"
 				placeholder="http://127.0.0.1:11434/v1"
-				:helper-text="t('llmchat', 'The connection is activated after the page reloads.')" />
+				:helperText="t('llmchat', 'The connection is activated after the page reloads.')" />
 
 			<NcTextField
 				v-model="form.api_key"
@@ -55,7 +55,7 @@
 
 			<NcSelect
 				v-model="providerOption"
-				:input-label="t('llmchat', 'Provider')"
+				:inputLabel="t('llmchat', 'Provider')"
 				:options="providerOptions"
 				:clearable="false"
 				label="label" />
@@ -81,15 +81,13 @@
 
 <script>
 import { showError, showSuccess } from '@nextcloud/dialogs'
-import Delete from 'vue-material-design-icons/Delete.vue'
-import Pencil from 'vue-material-design-icons/Pencil.vue'
-
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcEmptyContent from '@nextcloud/vue/components/NcEmptyContent'
 import NcNoteCard from '@nextcloud/vue/components/NcNoteCard'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
 import NcTextField from '@nextcloud/vue/components/NcTextField'
-
+import Delete from 'vue-material-design-icons/Delete.vue'
+import Pencil from 'vue-material-design-icons/Pencil.vue'
 import { dropCachedModels } from '../services/db.js'
 import { testConnection } from '../services/llm.js'
 import { useConfigStore } from '../store/config.js'
@@ -141,6 +139,7 @@ export default {
 			get() {
 				return this.providerOptions.find((o) => o.id === this.form.provider_hint)
 			},
+
 			set(option) {
 				this.form.provider_hint = option?.id ?? 'openai_compatible'
 			},

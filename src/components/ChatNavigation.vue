@@ -14,10 +14,10 @@
 		<!-- issue #6: searches titles and message bodies in IndexedDB -->
 		<template #search>
 			<NcAppNavigationSearch
-				:model-value="query"
+				:modelValue="query"
 				:label="t('llmchat', 'Search chats')"
 				:placeholder="t('llmchat', 'Search titles and messages')"
-				@update:model-value="onQuery" />
+				@update:modelValue="onQuery" />
 		</template>
 
 		<template #list>
@@ -89,7 +89,7 @@
 				the modal that has them all.
 			-->
 			<div class="nav__footer">
-				<NcButton wide @click="$emit('open-manager', 'general')">
+				<NcButton wide @click="$emit('openManager', 'general')">
 					<template #icon>
 						<Cog :size="20" />
 					</template>
@@ -101,12 +101,6 @@
 </template>
 
 <script>
-import Archive from 'vue-material-design-icons/Archive.vue'
-import Cog from 'vue-material-design-icons/Cog.vue'
-import Delete from 'vue-material-design-icons/Delete.vue'
-import MessageText from 'vue-material-design-icons/MessageText.vue'
-import Plus from 'vue-material-design-icons/Plus.vue'
-
 import NcActionButton from '@nextcloud/vue/components/NcActionButton'
 import NcAppNavigation from '@nextcloud/vue/components/NcAppNavigation'
 import NcAppNavigationCaption from '@nextcloud/vue/components/NcAppNavigationCaption'
@@ -114,7 +108,11 @@ import NcAppNavigationItem from '@nextcloud/vue/components/NcAppNavigationItem'
 import NcAppNavigationNew from '@nextcloud/vue/components/NcAppNavigationNew'
 import NcAppNavigationSearch from '@nextcloud/vue/components/NcAppNavigationSearch'
 import NcButton from '@nextcloud/vue/components/NcButton'
-
+import Archive from 'vue-material-design-icons/Archive.vue'
+import Cog from 'vue-material-design-icons/Cog.vue'
+import Delete from 'vue-material-design-icons/Delete.vue'
+import MessageText from 'vue-material-design-icons/MessageText.vue'
+import Plus from 'vue-material-design-icons/Plus.vue'
 import { useChatStore } from '../store/chat.js'
 import { useConfigStore } from '../store/config.js'
 
@@ -140,9 +138,10 @@ export default {
 		NcAppNavigationNew,
 		NcAppNavigationSearch,
 		NcButton,
+		Plus,
 	},
 
-	emits: ['open-manager'],
+	emits: ['openManager'],
 
 	setup() {
 		return {
@@ -178,7 +177,7 @@ export default {
 		 * for instance. Mirror that back into the field instead of leaving a
 		 * query in it that no longer applies to anything.
 		 */
-		'chat.search.query'(value) {
+		'chat.search.query': function(value) {
 			if (value === '' && this.query !== '') {
 				clearTimeout(this.timer)
 				this.query = ''

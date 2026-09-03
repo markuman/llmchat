@@ -5,6 +5,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+## 2.1.0 – 2026-09-03
+
+### Added
+- Per-profile override of the tool round budget. Empty follows the general setting, so nothing
+  changes for existing profiles; a value between 3 and 7 applies to that profile alone. A profile
+  that chains a search into several page fetches needs a larger budget than a plain chat profile,
+  and raising it globally would make every answer slower and more expensive. Clamped to the same
+  range as the general setting, on import as well.
+
+### Fixed
+- Clearing `system_prompt`, `temperature` or `max_tokens` on an existing profile silently did
+  nothing. `IRequest::getParam()` is `isset()` based, so an explicit `null` was indistinguishable
+  from an omitted key and the field kept its old value.
+- The "new chat" button rendered without its icon: the component was imported but never registered.
+- `UserAgentRotator` called the atomic `add()`/`inc()`, which are `IMemcache` rather than plain
+  `ICache` — a cache backend without them would have raised a fatal error instead of falling back
+  to the random pick.
+- `web_fetch` could dereference null while extracting the page title or stripping nodes from
+  malformed HTML.
+- A `searxng_url` that `parse_url()` rejects outright is now discarded before the result is read
+  instead of after.
+
+### Changed
+- Settings moved from the deprecated `IConfig` user-value API to `IUserConfig`. Same keys, same
+  storage, no migration needed.
+- Added the missing linter configuration: `eslint.config.js`, `.php-cs-fixer.dist.php` and
+  `psalm.xml`. `npm run lint`, `composer cs:check` and `composer psalm` previously all failed on a
+  fresh checkout because the configs the scripts referenced did not exist. Formatting across
+  `src/` was normalised in the process, and `nextcloud/ocp` now matches the targeted server
+  version instead of pinning 30.
+
 ## 2.0.0 – 2026-09-02
 
 ### Added

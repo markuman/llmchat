@@ -18,7 +18,7 @@
 				:title="t('llmchat', 'Stop generating (Esc)')"
 				@click="chat.abort()">
 				<template #icon>
-					<Stop :size="20" />
+					<StopIcon :size="20" />
 				</template>
 			</NcButton>
 			<NcButton
@@ -60,12 +60,11 @@
 </template>
 
 <script>
-import Send from 'vue-material-design-icons/Send.vue'
-import Stop from 'vue-material-design-icons/Stop.vue'
-
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
-
+import Send from 'vue-material-design-icons/Send.vue'
+// aliased: <Stop> collides with the reserved SVG element name
+import StopIcon from 'vue-material-design-icons/Stop.vue'
 import { useChatStore } from '../store/chat.js'
 import { useConfigStore } from '../store/config.js'
 
@@ -83,7 +82,7 @@ export default {
 		NcButton,
 		NcSelect,
 		Send,
-		Stop,
+		StopIcon,
 	},
 
 	emits: ['send'],
@@ -115,6 +114,7 @@ export default {
 				const profile = this.chat.activeProfile
 				return profile ? { id: profile.id, label: profile.name } : null
 			},
+
 			set(option) {
 				if (option?.id) {
 					this.chat.setProfile(option.id)
@@ -145,7 +145,7 @@ export default {
 	},
 
 	watch: {
-		'chat.activeId'() {
+		'chat.activeId': function() {
 			this.text = ''
 			this.$nextTick(this.autogrow)
 		},

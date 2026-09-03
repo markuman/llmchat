@@ -111,7 +111,9 @@ Open the app → **Set up connection & profile** → point it at your backend �
 
 * Nextcloud 34, PHP 8.2+
 * Node 20+ / npm 10+ **on the build machine** — nothing is compiled on the server
-* `.deployignore` keeps `node_modules`, sources and sourcemaps out: 2.5 MB instead of 314 MB
+* `.deployignore` keeps `node_modules`, sources, sourcemaps and the release tooling out: 2.5 MB
+  instead of 314 MB. `build-release.sh` uses the same list, so a tarball and an rsync deploy
+  contain exactly the same files.
 * **Never ship a `composer/` directory.** Its presence disables Nextcloud's generic PSR-4
   autoloader, and without a matching `vendor/` the app dies with a fatal error. This app has no
   runtime PHP dependencies and needs neither.
@@ -178,7 +180,9 @@ Off by default. Enabled per profile, individually — because they cost you very
 | ☁️ `nc_read` | browser → this Nextcloud | nothing | **yes** |
 
 With at least one enabled, the model runs a small agent loop — 3 to 7 tool rounds (a slider in
-the general settings, default 3), then a final answer without tools. **Needs a model trained for
+the general settings, default 3, overridable per profile), then a final answer without tools. A
+research profile that chains a search into several fetches can be given a larger budget without
+the cheap chat profiles paying for it. **Needs a model trained for
 tool calling**; small or older models will
 either ignore them or produce garbage. Tool rounds are ephemeral: fetched content goes to the
 model but never into your chat history, so the next message doesn't re-send kilobytes of scraped

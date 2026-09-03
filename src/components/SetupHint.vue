@@ -6,7 +6,7 @@
 			<Robot :size="20" />
 		</template>
 		<template #action>
-			<NcButton variant="primary" @click="$emit('open-manager')">
+			<NcButton variant="primary" @click="$emit('openManager')">
 				{{ t('llmchat', 'Set up connection & profile') }}
 			</NcButton>
 		</template>
@@ -14,11 +14,9 @@
 </template>
 
 <script>
-import Robot from 'vue-material-design-icons/Robot.vue'
-
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcEmptyContent from '@nextcloud/vue/components/NcEmptyContent'
-
+import Robot from 'vue-material-design-icons/Robot.vue'
 import { useConfigStore } from '../store/config.js'
 
 export default {
@@ -30,7 +28,7 @@ export default {
 		Robot,
 	},
 
-	emits: ['open-manager'],
+	emits: ['openManager'],
 
 	setup() {
 		return { config: useConfigStore() }

@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace OCA\LlmChat\Service;
 
 use OCP\ICacheFactory;
+use OCP\IMemcache;
 
 /**
  * Round-robin over a list of user agents.
@@ -35,8 +36,13 @@ class UserAgentRotator {
 			return 'Mozilla/5.0';
 		}
 
-		if ($this->cacheFactory->isAvailable()) {
-			$cache = $this->cacheFactory->createDistributed('llmchat');
+		$cache = $this->cacheFactory->isAvailable()
+			? $this->cacheFactory->createDistributed('llmchat')
+			: null;
+
+		// atomic add()/inc() are IMemcache, not plain ICache — a backend
+		// without them would fatal here instead of rotating
+		if ($cache instanceof IMemcache) {
 			// add() is atomic: only the first worker creates the key
 			$cache->add(self::CACHE_KEY, 0);
 			$counter = $cache->inc(self::CACHE_KEY);

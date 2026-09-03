@@ -144,9 +144,7 @@ export async function deleteChat(id) {
 }
 
 export async function listMessages(chatId) {
-	const messages = await tx(['messages'], 'readonly', (t) =>
-		req(t.objectStore('messages').index('chat_id').getAll(chatId)),
-	)
+	const messages = await tx(['messages'], 'readonly', (t) => req(t.objectStore('messages').index('chat_id').getAll(chatId)))
 
 	return (messages ?? []).sort((a, b) => a.ts - b.ts)
 }
@@ -199,7 +197,8 @@ function excerpt(content, at, length) {
  * All terms must appear (AND); the excerpt is cut around the first one.
  *
  * @param {string} query whitespace-separated terms
- * @param {object} options `limit` caps the number of hits
+ * @param {object} options search options
+ * @param {number} options.limit caps the number of hits
  * @return {Promise<Array<object>>} hits, in storage order
  */
 export async function searchMessages(query, { limit = 60 } = {}) {
@@ -262,9 +261,7 @@ export async function searchMessages(query, { limit = 60 } = {}) {
 }
 
 export async function getCachedModels(connectionId) {
-	const entry = await tx(['models'], 'readonly', (t) =>
-		req(t.objectStore('models').get(connectionId)),
-	)
+	const entry = await tx(['models'], 'readonly', (t) => req(t.objectStore('models').get(connectionId)))
 
 	return entry ?? null
 }

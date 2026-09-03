@@ -59,6 +59,7 @@ class ProfileService {
 		$profile->setReasoning((bool)($data['reasoning'] ?? true));
 		$profile->setEnabledTools($this->normalizeTools($data['enabled_tools'] ?? []));
 		$profile->setToolApproval((bool)($data['tool_approval'] ?? true));
+		$profile->setToolRounds($this->nullableToolRounds($data['tool_rounds'] ?? null));
 		$profile->setSortOrder($this->mapper->maxSortOrder($userId) + 1);
 
 		// the very first profile is the default, no matter what the client says
@@ -108,6 +109,9 @@ class ProfileService {
 		if (array_key_exists('tool_approval', $data)) {
 			$profile->setToolApproval((bool)$data['tool_approval']);
 		}
+		if (array_key_exists('tool_rounds', $data)) {
+			$profile->setToolRounds($this->nullableToolRounds($data['tool_rounds']));
+		}
 
 		$makeDefault = array_key_exists('is_default', $data) && (bool)$data['is_default'];
 		if ($makeDefault) {
@@ -142,6 +146,7 @@ class ProfileService {
 		$copy->setReasoning($source->getReasoning());
 		$copy->setEnabledTools($source->getEnabledTools());
 		$copy->setToolApproval($source->getToolApproval());
+		$copy->setToolRounds($source->getToolRounds());
 		$copy->setIsDefault(false);
 		$copy->setSortOrder($source->getSortOrder() + 1);
 
@@ -168,7 +173,7 @@ class ProfileService {
 	}
 
 	/**
-	 * @param int[] $orderedIds
+	 * @param array<mixed> $orderedIds straight from the request, hence the cast
 	 * @return Profile[]
 	 */
 	public function reorder(string $userId, array $orderedIds): array {
@@ -211,6 +216,7 @@ class ProfileService {
 				'reasoning' => $raw['reasoning'] ?? true,
 				'enabled_tools' => $raw['enabled_tools'] ?? [],
 				'tool_approval' => $raw['tool_approval'] ?? true,
+				'tool_rounds' => $raw['tool_rounds'] ?? null,
 				'is_default' => false,
 			]);
 		}
@@ -302,5 +308,21 @@ class ProfileService {
 		$int = (int)$value;
 
 		return $int > 0 ? $int : null;
+	}
+
+	/**
+	 * Per-profile override of the agent loop's tool budget.
+	 *
+	 * null stays null — that is "follow the general setting", not "zero
+	 * rounds". Anything else is clamped into the same range as the general
+	 * setting, so a profile cannot be edited or imported into an unbounded
+	 * loop.
+	 */
+	private function nullableToolRounds(mixed $value): ?int {
+		if ($value === null || $value === '') {
+			return null;
+		}
+
+		return SettingsService::clampToolRounds((int)$value);
 	}
 }

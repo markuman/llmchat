@@ -1,15 +1,15 @@
 <template>
-	<NcContent app-name="llmchat" :class="{ 'llm-compact': config.settings.compact_mode }">
-		<ChatNavigation @open-manager="openManager" />
+	<NcContent appName="llmchat" :class="{ 'llm-compact': config.settings.compact_mode }">
+		<ChatNavigation @openManager="openManager" />
 
 		<NcAppContent>
-			<SetupHint v-if="!config.hasProfiles" @open-manager="openManager(null)" />
+			<SetupHint v-if="!config.hasProfiles" @openManager="openManager(null)" />
 			<ChatView v-else />
 		</NcAppContent>
 
 		<ManagerModal
 			v-if="managerOpen"
-			:initial-tab="managerTab"
+			:initialTab="managerTab"
 			@close="managerOpen = false" />
 
 		<!-- at app level: the agent loop keeps running when the chat view scrolls -->

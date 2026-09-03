@@ -11,6 +11,14 @@ package.json
 package-lock.json
 vite.config.js
 
+# linter configuration and caches — they only apply to src/ and lib/ in the
+# repository, and .php-cs-fixer.dist.php would even fatal at runtime because
+# it requires a vendor/ that is deliberately not shipped
+eslint.config.js
+psalm.xml
+.php-cs-fixer.dist.php
+.php-cs-fixer.cache
+
 # Never ship a composer/ directory: its presence switches off Nextcloud's
 # generic PSR-4 autoloader (AppManager::registerAutoloading), and without a
 # vendor/ next to it the app dies with a fatal error.
@@ -27,9 +35,16 @@ vendor/
 # every installation. img/app.svg must stay: it is the navigation icon.
 img/[0-9]-*.png
 
+# release tooling and its output — build/ holds the store tarball plus an
+# unpacked copy of the whole app, so leaving it in would deploy a second
+# llmchat underneath the first one
+build/
+build-release.sh
+
 # repo noise
 # CHANGELOG.md stays: the app store parses it out of the release archive.
 .git/
+.github/
 .gitignore
 .deployignore
 nextcloud-llm-app-spec.md

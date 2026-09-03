@@ -4,6 +4,7 @@
 /css
 /build
 /.php-cs-fixer.cache
+/psalm-cache
 /.stylelintcache
 *.log
 

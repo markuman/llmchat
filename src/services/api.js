@@ -39,8 +39,7 @@ export const api = {
 	deleteProfile: (id) => call(axios.delete(url(`/profiles/${id}`))),
 	duplicateProfile: (id) => call(axios.post(url(`/profiles/${id}/duplicate`))),
 	reorderProfiles: (ids) => call(axios.post(url('/profiles/reorder'), { ids })),
-	importProfiles: (profiles, connectionId) =>
-		call(axios.post(url('/profiles/import'), { profiles, connection_id: connectionId })),
+	importProfiles: (profiles, connectionId) => call(axios.post(url('/profiles/import'), { profiles, connection_id: connectionId })),
 
 	archive: (payload) => call(axios.post(url('/archive'), payload)),
 

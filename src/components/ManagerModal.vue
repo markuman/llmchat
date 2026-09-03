@@ -5,7 +5,9 @@
 		:name="t('llmchat', 'Settings')"
 		@close="$emit('close')">
 		<div class="manager">
-			<h2 class="manager__title">{{ t('llmchat', 'Settings') }}</h2>
+			<h2 class="manager__title">
+				{{ t('llmchat', 'Settings') }}
+			</h2>
 
 			<div class="manager__tabs">
 				<NcButton
@@ -35,7 +37,6 @@
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcModal from '@nextcloud/vue/components/NcModal'
 import NcNoteCard from '@nextcloud/vue/components/NcNoteCard'
-
 import ConnectionsTab from './ConnectionsTab.vue'
 import GeneralTab from './GeneralTab.vue'
 import ProfilesTab from './ProfilesTab.vue'

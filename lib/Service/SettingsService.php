@@ -9,7 +9,7 @@ declare(strict_types=1);
 namespace OCA\LlmChat\Service;
 
 use OCA\LlmChat\AppInfo\Application;
-use OCP\IConfig;
+use OCP\Config\IUserConfig;
 
 class SettingsService {
 	/** Tool rounds the agent loop may spend before it has to answer. */
@@ -28,7 +28,7 @@ class SettingsService {
 	];
 
 	public function __construct(
-		private IConfig $config,
+		private IUserConfig $config,
 	) {
 	}
 
@@ -36,7 +36,7 @@ class SettingsService {
 		$settings = [];
 
 		foreach (self::DEFAULTS as $key => $default) {
-			$raw = $this->config->getUserValue($userId, Application::APP_ID, $key, '');
+			$raw = $this->config->getValueString($userId, Application::APP_ID, $key);
 			$settings[$key] = $raw === '' ? $default : $this->cast($key, $raw);
 		}
 
@@ -51,11 +51,11 @@ class SettingsService {
 
 			$value = $data[$key];
 			if ($value === null) {
-				$this->config->deleteUserValue($userId, Application::APP_ID, $key);
+				$this->config->deleteUserConfig($userId, Application::APP_ID, $key);
 				continue;
 			}
 
-			$this->config->setUserValue(
+			$this->config->setValueString(
 				$userId,
 				Application::APP_ID,
 				$key,
@@ -70,7 +70,7 @@ class SettingsService {
 		return match ($key) {
 			'compact_mode', 'markdown_rendering', 'show_reasoning' => $raw === '1',
 			'default_profile_id' => (int)$raw,
-			'max_tool_rounds' => $this->clampToolRounds((int)$raw),
+			'max_tool_rounds' => self::clampToolRounds((int)$raw),
 			default => $raw,
 		};
 	}
@@ -79,9 +79,9 @@ class SettingsService {
 		return match ($key) {
 			'compact_mode', 'markdown_rendering', 'show_reasoning' => $value ? '1' : '0',
 			'archive_folder' => $this->normalizeFolder((string)$value),
-			'archive_target' => in_array($value, ['files'], true) ? (string)$value : 'files',
+			'archive_target' => in_array($value, ['files'], true) ? $value : 'files',
 			'searxng_url' => $this->normalizeSearxngUrl((string)$value),
-			'max_tool_rounds' => (string)$this->clampToolRounds((int)$value),
+			'max_tool_rounds' => (string)self::clampToolRounds((int)$value),
 			default => (string)$value,
 		};
 	}
@@ -90,8 +90,11 @@ class SettingsService {
 	 * The browser runs the agent loop, so this bound is advisory — but storing
 	 * a sane value keeps a hand-edited config from turning into an endless
 	 * tool loop, and the front end reads the same range.
+	 *
+	 * Public and static because the per-profile override (ProfileService) has
+	 * to land in exactly the same range as this general setting.
 	 */
-	private function clampToolRounds(int $rounds): int {
+	public static function clampToolRounds(int $rounds): int {
 		return max(self::MIN_TOOL_ROUNDS, min(self::MAX_TOOL_ROUNDS, $rounds));
 	}
 
@@ -110,8 +113,12 @@ class SettingsService {
 		}
 
 		$parts = parse_url($url);
-		$scheme = strtolower((string)($parts['scheme'] ?? ''));
-		if ($parts === false || !isset($parts['host']) || ($scheme !== 'http' && $scheme !== 'https')) {
+		if ($parts === false) {
+			return '';
+		}
+
+		$scheme = strtolower($parts['scheme'] ?? '');
+		if (!isset($parts['host']) || ($scheme !== 'http' && $scheme !== 'https')) {
 			return '';
 		}
 

@@ -43,13 +43,10 @@ npm run build --silent
 rm -rf "${BUILD_DIR}"
 mkdir -p "${BUILD_DIR}/${APP_ID}"
 
-# Same exclusions as a server deploy, plus the tooling that only matters in
-# the repository.
+# Exactly the same exclusions as a server deploy — .deployignore is the one
+# list, so the tarball and an rsync deploy cannot drift apart.
 rsync -a \
 	--exclude-from=.deployignore \
-	--exclude 'build/' \
-	--exclude 'build-release.sh' \
-	--exclude '.github/' \
 	./ "${BUILD_DIR}/${APP_ID}/"
 
 TARBALL="${BUILD_DIR}/${APP_ID}-${VERSION}.tar.gz"

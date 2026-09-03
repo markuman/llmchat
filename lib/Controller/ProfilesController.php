@@ -50,6 +50,7 @@ class ProfilesController extends ApiController {
 		bool $reasoning = true,
 		array $enabled_tools = [],
 		bool $tool_approval = true,
+		?int $tool_rounds = null,
 		bool $is_default = false,
 	): DataResponse {
 		return $this->handle(fn () => $this->service->create($this->uid(), [
@@ -63,6 +64,7 @@ class ProfilesController extends ApiController {
 			'reasoning' => $reasoning,
 			'enabled_tools' => $enabled_tools,
 			'tool_approval' => $tool_approval,
+			'tool_rounds' => $tool_rounds,
 			'is_default' => $is_default,
 		])->jsonSerialize());
 	}
@@ -90,15 +92,20 @@ class ProfilesController extends ApiController {
 			}
 		}
 
-		// system_prompt, temperature and max_tokens are nullable *values*, and
-		// enabled_tools has an empty array as a meaningful value, so "not sent"
-		// has to stay distinguishable from "explicitly empty" — which typed
-		// parameters cannot express. Read those straight off the request.
-		$sentinel = "\0absent";
-		foreach (['system_prompt', 'temperature', 'max_tokens', 'enabled_tools'] as $key) {
-			$value = $this->request->getParam($key, $sentinel);
-			if ($value !== $sentinel) {
-				$data[$key] = $value;
+		// system_prompt, temperature, max_tokens and tool_rounds are nullable
+		// *values* (null means "backend default" resp. "use the general tool
+		// budget"), and enabled_tools has an empty array as a meaningful
+		// value, so "not sent" has to stay distinguishable from "explicitly
+		// empty" — which typed parameters cannot express. Read those straight
+		// off the request.
+		//
+		// getParams() rather than getParam(): the latter is isset() based, so
+		// an explicit null looks exactly like a missing key and clearing a
+		// field would silently do nothing.
+		$params = $this->request->getParams();
+		foreach (['system_prompt', 'temperature', 'max_tokens', 'enabled_tools', 'tool_rounds'] as $key) {
+			if (array_key_exists($key, $params)) {
+				$data[$key] = $params[$key];
 			}
 		}
 

@@ -94,7 +94,7 @@
 
 			<NcSelect
 				v-model="connectionOption"
-				:input-label="t('llmchat', 'Connection')"
+				:inputLabel="t('llmchat', 'Connection')"
 				:options="connectionOptions"
 				:clearable="false"
 				label="label" />
@@ -109,7 +109,7 @@
 					v-if="modelOptions.length > 0"
 					v-model="modelOption"
 					class="form__model-select"
-					:input-label="t('llmchat', 'Model')"
+					:inputLabel="t('llmchat', 'Model')"
 					:options="modelOptions"
 					:loading="loadingModels"
 					:clearable="false"
@@ -182,26 +182,26 @@
 			<label class="form__label">{{ t('llmchat', 'Tools') }}</label>
 
 			<NcCheckboxRadioSwitch
-				:model-value="form.enabled_tools.includes('datetime')"
-				@update:model-value="toggleTool('datetime', $event)">
+				:modelValue="form.enabled_tools.includes('datetime')"
+				@update:modelValue="toggleTool('datetime', $event)">
 				{{ t('llmchat', 'Date & time — answered locally by your browser') }}
 			</NcCheckboxRadioSwitch>
 
 			<NcCheckboxRadioSwitch
-				:model-value="form.enabled_tools.includes('web_search')"
-				@update:model-value="toggleTool('web_search', $event)">
+				:modelValue="form.enabled_tools.includes('web_search')"
+				@update:modelValue="toggleTool('web_search', $event)">
 				{{ t('llmchat', 'Web search — your browser queries SearXNG directly') }}
 			</NcCheckboxRadioSwitch>
 
 			<NcCheckboxRadioSwitch
-				:model-value="form.enabled_tools.includes('web_fetch')"
-				@update:model-value="toggleTool('web_fetch', $event)">
+				:modelValue="form.enabled_tools.includes('web_fetch')"
+				@update:modelValue="toggleTool('web_fetch', $event)">
 				{{ t('llmchat', 'Fetch web pages — URLs go through this server') }}
 			</NcCheckboxRadioSwitch>
 
 			<NcCheckboxRadioSwitch
-				:model-value="form.enabled_tools.includes('nc_read')"
-				@update:model-value="toggleTool('nc_read', $event)">
+				:modelValue="form.enabled_tools.includes('nc_read')"
+				@update:modelValue="toggleTool('nc_read', $event)">
 				{{ t('llmchat', 'Read Nextcloud — search and collectives, read-only') }}
 			</NcCheckboxRadioSwitch>
 
@@ -215,6 +215,23 @@
 				</NcCheckboxRadioSwitch>
 				<p class="form__hint">
 					{{ t('llmchat', 'Recommended. A fetched page can contain instructions aimed at the model, so this is where you see the resulting request before it goes out. Date/time and web search are never confirmed.') }}
+				</p>
+
+				<!--
+					Overrides the general setting: a research profile may chain
+					a search into several fetches, while a plain chat profile
+					should not pay for that budget.
+				-->
+				<NcTextField
+					v-model="form.tool_rounds"
+					type="number"
+					:min="minToolRounds"
+					:max="maxToolRounds"
+					step="1"
+					:label="t('llmchat', 'Tool rounds per answer')"
+					:placeholder="toolRoundsPlaceholder" />
+				<p class="form__hint">
+					{{ toolRoundsHint }}
 				</p>
 			</template>
 
@@ -232,6 +249,13 @@
 
 <script>
 import { showError, showSuccess } from '@nextcloud/dialogs'
+import NcActionButton from '@nextcloud/vue/components/NcActionButton'
+import NcActions from '@nextcloud/vue/components/NcActions'
+import NcButton from '@nextcloud/vue/components/NcButton'
+import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
+import NcNoteCard from '@nextcloud/vue/components/NcNoteCard'
+import NcSelect from '@nextcloud/vue/components/NcSelect'
+import NcTextField from '@nextcloud/vue/components/NcTextField'
 import ContentDuplicate from 'vue-material-design-icons/ContentDuplicate.vue'
 import Delete from 'vue-material-design-icons/Delete.vue'
 import Download from 'vue-material-design-icons/Download.vue'
@@ -240,18 +264,9 @@ import Pencil from 'vue-material-design-icons/Pencil.vue'
 import Refresh from 'vue-material-design-icons/Refresh.vue'
 import Star from 'vue-material-design-icons/Star.vue'
 import Upload from 'vue-material-design-icons/Upload.vue'
-
-import NcActionButton from '@nextcloud/vue/components/NcActionButton'
-import NcActions from '@nextcloud/vue/components/NcActions'
-import NcButton from '@nextcloud/vue/components/NcButton'
-import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
-import NcNoteCard from '@nextcloud/vue/components/NcNoteCard'
-import NcSelect from '@nextcloud/vue/components/NcSelect'
-import NcTextField from '@nextcloud/vue/components/NcTextField'
-
 import { cacheModels, getCachedModels } from '../services/db.js'
 import { fetchModels } from '../services/llm.js'
-import { useConfigStore } from '../store/config.js'
+import { MAX_TOOL_ROUNDS, MIN_TOOL_ROUNDS, useConfigStore } from '../store/config.js'
 
 function emptyForm(connectionId = null) {
 	return {
@@ -266,6 +281,8 @@ function emptyForm(connectionId = null) {
 		reasoning: true,
 		enabled_tools: [],
 		tool_approval: true,
+		// empty means "follow the general setting"
+		tool_rounds: '',
 	}
 }
 
@@ -302,6 +319,8 @@ export default {
 			loadingModels: false,
 			modelError: null,
 			dragIndex: null,
+			minToolRounds: MIN_TOOL_ROUNDS,
+			maxToolRounds: MAX_TOOL_ROUNDS,
 		}
 	},
 
@@ -314,6 +333,7 @@ export default {
 			get() {
 				return this.connectionOptions.find((o) => o.id === this.form.connection_id) ?? null
 			},
+
 			set(option) {
 				this.form.connection_id = option?.id ?? null
 			},
@@ -327,6 +347,7 @@ export default {
 			get() {
 				return this.form.model ? { id: this.form.model, label: this.form.model } : null
 			},
+
 			set(option) {
 				this.form.model = option?.id ?? ''
 			},
@@ -360,10 +381,22 @@ export default {
 
 			return `${base} ${this.t('llmchat', 'Nothing leaves your browser with this selection.')}`
 		},
+
+		toolRoundsPlaceholder() {
+			return this.t('llmchat', 'general setting ({rounds})', { rounds: this.config.toolRounds })
+		},
+
+		toolRoundsHint() {
+			if (this.form.tool_rounds === '' || this.form.tool_rounds === null) {
+				return this.t('llmchat', 'Empty follows the general setting. Set a value between {min} and {max} to override it for this profile only.', { min: MIN_TOOL_ROUNDS, max: MAX_TOOL_ROUNDS })
+			}
+
+			return this.t('llmchat', 'How often the model may call tools before it has to answer. The last round always runs without tools.')
+		},
 	},
 
 	watch: {
-		'form.connection_id'() {
+		'form.connection_id': function() {
 			this.loadModels(false)
 		},
 	},
@@ -427,6 +460,7 @@ export default {
 				// copied, not referenced: toggling must not mutate the store
 				enabled_tools: [...(profile.enabled_tools ?? [])],
 				tool_approval: profile.tool_approval ?? true,
+				tool_rounds: profile.tool_rounds ?? '',
 			}
 			this.$nextTick(this.autogrow)
 		},
@@ -470,6 +504,9 @@ export default {
 					reasoning: this.form.reasoning,
 					enabled_tools: this.form.enabled_tools,
 					tool_approval: this.form.tool_approval,
+					tool_rounds: this.form.tool_rounds === '' || this.form.tool_rounds === null
+						? null
+						: Number(this.form.tool_rounds),
 				}
 
 				if (this.form.id) {
@@ -568,6 +605,7 @@ export default {
 					reasoning: p.reasoning,
 					enabled_tools: p.enabled_tools,
 					tool_approval: p.tool_approval,
+					tool_rounds: p.tool_rounds ?? null,
 				})),
 			}
 
@@ -581,7 +619,7 @@ export default {
 		},
 
 		exportOne(profile) {
-			this.download([profile], `${profile.name.replace(/[^\w\-]+/g, '-')}.json`)
+			this.download([profile], `${profile.name.replace(/[^\w-]+/g, '-')}.json`)
 		},
 
 		exportAll() {

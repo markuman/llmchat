@@ -49,14 +49,14 @@
 					v-if="canRegenerate && otherProfiles.length > 0"
 					:aria-label="t('llmchat', 'Regenerate with another profile')"
 					:disabled="chat.generating"
-					force-menu>
+					forceMenu>
 					<template #icon>
 						<Sync :size="16" />
 					</template>
 					<NcActionButton
 						v-for="profile in otherProfiles"
 						:key="profile.id"
-						:close-after-click="true"
+						:closeAfterClick="true"
 						@click="chat.regenerate(profile.id)">
 						<template #icon>
 							<Robot :size="20" />
@@ -69,7 +69,11 @@
 
 		<!-- edit mode -->
 		<div v-if="editing" class="message__edit">
-			<textarea ref="editor" v-model="draft" class="message__editor" rows="4" />
+			<textarea
+				ref="editor"
+				v-model="draft"
+				class="message__editor"
+				rows="4" />
 			<div class="message__edit-actions">
 				<NcButton variant="primary" @click="submitEdit">
 					{{ t('llmchat', 'Send from here') }}
@@ -110,16 +114,14 @@
 </template>
 
 <script>
+import NcActionButton from '@nextcloud/vue/components/NcActionButton'
+import NcActions from '@nextcloud/vue/components/NcActions'
+import NcButton from '@nextcloud/vue/components/NcButton'
 import ContentCopy from 'vue-material-design-icons/ContentCopy.vue'
 import Pencil from 'vue-material-design-icons/Pencil.vue'
 import Refresh from 'vue-material-design-icons/Refresh.vue'
 import Robot from 'vue-material-design-icons/Robot.vue'
 import Sync from 'vue-material-design-icons/Sync.vue'
-
-import NcActionButton from '@nextcloud/vue/components/NcActionButton'
-import NcActions from '@nextcloud/vue/components/NcActions'
-import NcButton from '@nextcloud/vue/components/NcButton'
-
 import { renderMarkdown, renderPlain } from '../services/markdown.js'
 import { useChatStore } from '../store/chat.js'
 import { useConfigStore } from '../store/config.js'

@@ -16,6 +16,20 @@ import { api } from '../services/api.js'
 export const MIN_TOOL_ROUNDS = 3
 export const MAX_TOOL_ROUNDS = 7
 
+/**
+ * @param {number|string|null|undefined} value raw round count, from the
+ *   settings or from a profile
+ * @return {number} value inside [MIN_TOOL_ROUNDS, MAX_TOOL_ROUNDS]
+ */
+function clampRounds(value) {
+	const rounds = Number(value ?? MIN_TOOL_ROUNDS)
+	if (!Number.isFinite(rounds)) {
+		return MIN_TOOL_ROUNDS
+	}
+
+	return Math.max(MIN_TOOL_ROUNDS, Math.min(MAX_TOOL_ROUNDS, Math.round(rounds)))
+}
+
 function safeState(key, fallback) {
 	try {
 		return loadState('llmchat', key, fallback)
@@ -60,23 +74,30 @@ export const useConfigStore = defineStore('config', {
 		 * the call site: a stored value from an older version, or from a
 		 * hand-edited config, must not unbound the loop.
 		 */
-		toolRounds: (state) => {
-			const value = Number(state.settings.max_tool_rounds ?? MIN_TOOL_ROUNDS)
-			if (!Number.isFinite(value)) {
-				return MIN_TOOL_ROUNDS
-			}
+		toolRounds: (state) => clampRounds(state.settings.max_tool_rounds),
 
-			return Math.max(MIN_TOOL_ROUNDS, Math.min(MAX_TOOL_ROUNDS, Math.round(value)))
+		/**
+		 * The budget a given profile runs with: its own `tool_rounds` if set,
+		 * otherwise the general setting. A profile that chains a search into
+		 * a fetch needs more rounds than a plain chat profile, and paying for
+		 * that globally is the wrong trade.
+		 */
+		toolRoundsFor() {
+			return (profile) => {
+				const own = profile?.tool_rounds
+				if (own === null || own === undefined || own === '') {
+					return this.toolRounds
+				}
+
+				return clampRounds(own)
+			}
 		},
 
-		sortedProfiles: (state) =>
-			[...state.profiles].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+		sortedProfiles: (state) => [...state.profiles].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
 
-		connectionById: (state) => (id) =>
-			state.connections.find((c) => c.id === id) ?? null,
+		connectionById: (state) => (id) => state.connections.find((c) => c.id === id) ?? null,
 
-		profileById: (state) => (id) =>
-			state.profiles.find((p) => p.id === id) ?? null,
+		profileById: (state) => (id) => state.profiles.find((p) => p.id === id) ?? null,
 
 		defaultProfile(state) {
 			const configured = state.settings.default_profile_id
@@ -92,8 +113,7 @@ export const useConfigStore = defineStore('config', {
 
 		/** Profiles whose connection still exists — anything else cannot be used. */
 		usableProfiles(state) {
-			return this.sortedProfiles.filter((p) =>
-				state.connections.some((c) => c.id === p.connection_id))
+			return this.sortedProfiles.filter((p) => state.connections.some((c) => c.id === p.connection_id))
 		},
 	},
 

@@ -119,24 +119,22 @@ export async function search(term, { provider = null, limit = DEFAULT_LIMIT } = 
 
 	const capped = Math.min(Math.max(1, limit), MAX_SEARCH_LIMIT)
 
-	const settled = await Promise.allSettled(
-		providers.map(async (p) => {
-			const url = generateOcsUrl('search/providers/{providerId}/search', { providerId: p.id })
-				+ `?${new URLSearchParams({ term: query, limit: String(capped) })}`
-			const data = await ocs(url)
+	const settled = await Promise.allSettled(providers.map(async (p) => {
+		const url = generateOcsUrl('search/providers/{providerId}/search', { providerId: p.id })
+			+ `?${new URLSearchParams({ term: query, limit: String(capped) })}`
+		const data = await ocs(url)
 
-			return {
-				provider: p.id,
-				entries: (data?.entries ?? []).map((e) => ({
-					title: e.title ?? '',
-					subline: e.subline ?? '',
-					// relative link into the web UI, useful for the user but
-					// deliberately not something the model should fetch
-					url: e.resourceUrl ?? '',
-				})),
-			}
-		}),
-	)
+		return {
+			provider: p.id,
+			entries: (data?.entries ?? []).map((e) => ({
+				title: e.title ?? '',
+				subline: e.subline ?? '',
+				// relative link into the web UI, useful for the user but
+				// deliberately not something the model should fetch
+				url: e.resourceUrl ?? '',
+			})),
+		}
+	}))
 
 	const results = settled
 		.filter((r) => r.status === 'fulfilled' && r.value.entries.length > 0)
@@ -181,9 +179,7 @@ export async function listCollectives() {
  * @return {Promise<object>} pages
  */
 export async function listPages(collectiveId) {
-	const data = await ocs(
-		generateOcsUrl('apps/collectives/api/v1.0/collectives/{id}/pages', { id: collectiveId }),
-	)
+	const data = await ocs(generateOcsUrl('apps/collectives/api/v1.0/collectives/{id}/pages', { id: collectiveId }))
 
 	const pages = (data?.pages ?? []).map((p) => ({
 		id: p.id,
@@ -212,12 +208,10 @@ export async function listPages(collectiveId) {
  * @return {Promise<object>} page with content
  */
 export async function readPage(collectiveId, pageId) {
-	const data = await ocs(
-		generateOcsUrl('apps/collectives/api/v1.0/collectives/{cid}/pages/{pid}', {
-			cid: collectiveId,
-			pid: pageId,
-		}),
-	)
+	const data = await ocs(generateOcsUrl('apps/collectives/api/v1.0/collectives/{cid}/pages/{pid}', {
+		cid: collectiveId,
+		pid: pageId,
+	}))
 
 	const page = data?.page
 	if (!page) {
@@ -281,5 +275,3 @@ export async function searchCollective(collectiveId, term) {
 
 	return pages.length === 0 ? { pages: [], note: 'no matching pages' } : { pages }
 }
-
-

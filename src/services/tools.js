@@ -165,11 +165,7 @@ const DEFINITIONS = {
  * Which tool id owns a given function name. Derived from the definitions so
  * the two can never drift apart.
  */
-const TOOL_ID_BY_FUNCTION = Object.fromEntries(
-	Object.entries(DEFINITIONS).flatMap(
-		([id, defs]) => defs.map((d) => [d.function.name, id]),
-	),
-)
+const TOOL_ID_BY_FUNCTION = Object.fromEntries(Object.entries(DEFINITIONS).flatMap(([id, defs]) => defs.map((d) => [d.function.name, id])))
 
 /**
  * Definitions for the tools a profile allows, in a stable order.
@@ -324,7 +320,7 @@ export async function executeTool(call, enabled = [], options = {}) {
 		}
 	}
 
-	let args = {}
+	let args
 	try {
 		args = JSON.parse(call.function?.arguments || '{}')
 	} catch {
@@ -336,103 +332,103 @@ export async function executeTool(call, enabled = [], options = {}) {
 
 	try {
 		switch (name) {
-		case 'get_current_datetime': {
-			const result = getCurrentDatetime()
-			return {
-				content: JSON.stringify(result),
-				summary: result.locale_string,
-			}
-		}
-
-		case 'web_search': {
-			const query = String(args.query ?? '').trim()
-			if (!query) {
-				return { content: JSON.stringify({ error: 'query missing' }), summary: 'web_search: query missing' }
-			}
-			const data = await searchWeb(query, options.searxngUrl ?? '')
-			return {
-				content: JSON.stringify(data),
-				summary: data.error
-					? `"${query}" — ${data.error}`
-					: `"${query}" — ${data.results.length === 0 ? 'no results' : `${data.results.length} results`}`,
-			}
-		}
-
-		case 'web_fetch': {
-			const url = String(args.url ?? '').trim()
-			if (!url) {
-				return { content: JSON.stringify({ error: 'url missing' }), summary: 'web_fetch: url missing' }
-			}
-			const { data } = await axios.post(toolUrl('/fetch'), { url })
-			return {
-				content: JSON.stringify(data),
-				summary: data.title ? `${data.title} (${url})` : url,
-			}
-		}
-
-		case 'nc_search': {
-			const query = String(args.query ?? '').trim()
-			const data = await nc.search(query, { provider: args.provider || null })
-			const count = (data.results ?? []).reduce((sum, r) => sum + r.entries.length, 0)
-			return {
-				content: JSON.stringify(data),
-				summary: data.error
-					? `nc_search: ${data.error}`
-					: `"${query}" — ${count === 0 ? 'nothing found' : `${count} hits`}`,
-			}
-		}
-
-		case 'nc_list_collectives': {
-			const data = await nc.listCollectives()
-			return {
-				content: JSON.stringify(data),
-				summary: `${data.collectives.length} collectives`,
-			}
-		}
-
-		case 'nc_list_pages': {
-			const collectiveId = Number(args.collective_id)
-			if (!collectiveId) {
+			case 'get_current_datetime': {
+				const result = getCurrentDatetime()
 				return {
-					content: JSON.stringify({ error: 'collective_id missing' }),
-					summary: 'nc_list_pages: collective_id missing',
+					content: JSON.stringify(result),
+					summary: result.locale_string,
 				}
 			}
-			const query = String(args.query ?? '').trim()
-			const data = query
-				? await nc.searchCollective(collectiveId, query)
-				: await nc.listPages(collectiveId)
-			return {
-				content: JSON.stringify(data),
-				summary: data.error
-					? `nc_list_pages: ${data.error}`
-					: `${data.pages.length} pages${query ? ` matching "${query}"` : ''}`,
-			}
-		}
 
-		case 'nc_read_page': {
-			const collectiveId = Number(args.collective_id)
-			const pageId = Number(args.page_id)
-			if (!collectiveId || !pageId) {
+			case 'web_search': {
+				const query = String(args.query ?? '').trim()
+				if (!query) {
+					return { content: JSON.stringify({ error: 'query missing' }), summary: 'web_search: query missing' }
+				}
+				const data = await searchWeb(query, options.searxngUrl ?? '')
 				return {
-					content: JSON.stringify({ error: 'collective_id and page_id are required' }),
-					summary: 'nc_read_page: missing ids',
+					content: JSON.stringify(data),
+					summary: data.error
+						? `"${query}" — ${data.error}`
+						: `"${query}" — ${data.results.length === 0 ? 'no results' : `${data.results.length} results`}`,
 				}
 			}
-			const data = await nc.readPage(collectiveId, pageId)
-			return {
-				content: JSON.stringify(data),
-				summary: data.error
-					? `nc_read_page: ${data.error}`
-					: `${data.title}${data.truncated ? ' (truncated)' : ''}`,
-			}
-		}
 
-		default:
-			return {
-				content: JSON.stringify({ error: `unknown tool: ${name}` }),
-				summary: `unknown tool: ${name}`,
+			case 'web_fetch': {
+				const url = String(args.url ?? '').trim()
+				if (!url) {
+					return { content: JSON.stringify({ error: 'url missing' }), summary: 'web_fetch: url missing' }
+				}
+				const { data } = await axios.post(toolUrl('/fetch'), { url })
+				return {
+					content: JSON.stringify(data),
+					summary: data.title ? `${data.title} (${url})` : url,
+				}
 			}
+
+			case 'nc_search': {
+				const query = String(args.query ?? '').trim()
+				const data = await nc.search(query, { provider: args.provider || null })
+				const count = (data.results ?? []).reduce((sum, r) => sum + r.entries.length, 0)
+				return {
+					content: JSON.stringify(data),
+					summary: data.error
+						? `nc_search: ${data.error}`
+						: `"${query}" — ${count === 0 ? 'nothing found' : `${count} hits`}`,
+				}
+			}
+
+			case 'nc_list_collectives': {
+				const data = await nc.listCollectives()
+				return {
+					content: JSON.stringify(data),
+					summary: `${data.collectives.length} collectives`,
+				}
+			}
+
+			case 'nc_list_pages': {
+				const collectiveId = Number(args.collective_id)
+				if (!collectiveId) {
+					return {
+						content: JSON.stringify({ error: 'collective_id missing' }),
+						summary: 'nc_list_pages: collective_id missing',
+					}
+				}
+				const query = String(args.query ?? '').trim()
+				const data = query
+					? await nc.searchCollective(collectiveId, query)
+					: await nc.listPages(collectiveId)
+				return {
+					content: JSON.stringify(data),
+					summary: data.error
+						? `nc_list_pages: ${data.error}`
+						: `${data.pages.length} pages${query ? ` matching "${query}"` : ''}`,
+				}
+			}
+
+			case 'nc_read_page': {
+				const collectiveId = Number(args.collective_id)
+				const pageId = Number(args.page_id)
+				if (!collectiveId || !pageId) {
+					return {
+						content: JSON.stringify({ error: 'collective_id and page_id are required' }),
+						summary: 'nc_read_page: missing ids',
+					}
+				}
+				const data = await nc.readPage(collectiveId, pageId)
+				return {
+					content: JSON.stringify(data),
+					summary: data.error
+						? `nc_read_page: ${data.error}`
+						: `${data.title}${data.truncated ? ' (truncated)' : ''}`,
+				}
+			}
+
+			default:
+				return {
+					content: JSON.stringify({ error: `unknown tool: ${name}` }),
+					summary: `unknown tool: ${name}`,
+				}
 		}
 	} catch (error) {
 		const message = error?.response?.data?.message ?? error.message ?? 'unknown error'

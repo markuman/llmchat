@@ -7,8 +7,8 @@ import { showError, showSuccess } from '@nextcloud/dialogs'
 import { t } from '@nextcloud/l10n'
 import { defineStore } from 'pinia'
 import { markRaw } from 'vue'
-import * as db from '../services/db.js'
 import { api } from '../services/api.js'
+import * as db from '../services/db.js'
 import {
 	estimateTokens,
 	generateTitle,
@@ -55,7 +55,7 @@ export const useChatStore = defineStore('chat', {
 	getters: {
 		activeChat: (state) => state.chats.find((c) => c.id === state.activeId) ?? null,
 
-		activeProfile(state) {
+		activeProfile() {
 			const config = useConfigStore()
 			const chat = this.activeChat
 
@@ -174,9 +174,10 @@ export const useChatStore = defineStore('chat', {
 
 		/**
 		 * @param {string} id chat to open
-		 * @param {object} options `highlight` marks a message for the view to
-		 *   scroll to; set it here rather than afterwards so the view does not
-		 *   first jump to the bottom and then to the message
+		 * @param {object} options open options
+		 * @param {string|null} options.highlight marks a message for the view
+		 *   to scroll to; set it here rather than afterwards so the view does
+		 *   not first jump to the bottom and then to the message
 		 */
 		async openChat(id, { highlight = null } = {}) {
 			this.abort()
@@ -539,14 +540,15 @@ export const useChatStore = defineStore('chat', {
 		 * stays clean, and the next completion does not re-send kilobytes of
 		 * fetched page text. What happened is kept in `tool_log` for display.
 		 *
-		 * Bounded at the configured tool budget (3–7, general settings): a model
-		 * that keeps calling tools gets one final round without tools instead
-		 * of looping forever.
+		 * Bounded at the configured tool budget (3–7, the profile's own value
+		 * if it has one, otherwise the general setting): a model that keeps
+		 * calling tools gets one final round without tools instead of looping
+		 * forever.
 		 *
 		 * @return {Promise<{content: string, usage: object|null}>} final completion
 		 */
 		async runAgentLoop({ connection, profile, history, placeholder }) {
-			const maxRounds = useConfigStore().toolRounds
+			const maxRounds = useConfigStore().toolRoundsFor(profile)
 
 			const onDelta = ({ content, reasoning }) => {
 				const target = this.messages.find((m) => m.id === placeholder.id)
@@ -657,7 +659,7 @@ export const useChatStore = defineStore('chat', {
 				return true
 			}
 
-			let args = {}
+			let args
 			try {
 				args = JSON.parse(call.function.arguments || '{}')
 			} catch {

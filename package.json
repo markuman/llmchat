@@ -1,7 +1,7 @@
 {
 	"name": "llmchat",
 	"description": "Nextcloud LLM chat app",
-	"version": "2.0.0",
+	"version": "2.1.0",
 	"license": "AGPL-3.0-or-later",
 	"private": true,
 	"type": "module",
@@ -29,7 +29,9 @@
 	},
 	"devDependencies": {
 		"@nextcloud/browserslist-config": "^3.1.2",
+		"@nextcloud/eslint-config": "^9.0.1",
 		"@nextcloud/vite-config": "^2.5.4",
+		"eslint": "^10.9.1",
 		"typescript": "^5.9.3",
 		"vite": "^7.3.6"
 	},

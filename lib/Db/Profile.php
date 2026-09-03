@@ -35,6 +35,8 @@ use OCP\AppFramework\Db\Entity;
  * @method void setEnabledTools(string $enabledTools)
  * @method bool getToolApproval()
  * @method void setToolApproval(bool $toolApproval)
+ * @method int|null getToolRounds()
+ * @method void setToolRounds(?int $toolRounds)
  * @method int getSortOrder()
  * @method void setSortOrder(int $sortOrder)
  */
@@ -57,6 +59,8 @@ class Profile extends Entity implements \JsonSerializable {
 	protected string $enabledTools = '';
 	/** ask before each tool call that reaches outside the browser */
 	protected bool $toolApproval = true;
+	/** null = follow the general setting, see SettingsService::clampToolRounds() */
+	protected ?int $toolRounds = null;
 	protected int $sortOrder = 0;
 
 	public function __construct() {
@@ -72,6 +76,7 @@ class Profile extends Entity implements \JsonSerializable {
 		$this->addType('reasoning', 'boolean');
 		$this->addType('enabledTools', 'string');
 		$this->addType('toolApproval', 'boolean');
+		$this->addType('toolRounds', 'integer');
 		$this->addType('sortOrder', 'integer');
 	}
 
@@ -89,6 +94,7 @@ class Profile extends Entity implements \JsonSerializable {
 			'reasoning' => $this->getReasoning(),
 			'enabled_tools' => $this->getEnabledToolsArray(),
 			'tool_approval' => $this->getToolApproval(),
+			'tool_rounds' => $this->getToolRounds(),
 			'sort_order' => $this->getSortOrder(),
 		];
 	}
@@ -120,6 +126,7 @@ class Profile extends Entity implements \JsonSerializable {
 			'reasoning' => $this->getReasoning(),
 			'enabled_tools' => $this->getEnabledToolsArray(),
 			'tool_approval' => $this->getToolApproval(),
+			'tool_rounds' => $this->getToolRounds(),
 		];
 	}
 }

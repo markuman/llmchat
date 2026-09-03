@@ -6,12 +6,14 @@
 	-->
 	<div class="tab">
 		<section class="tab__section">
-			<h3 class="tab__title">{{ t('llmchat', 'Chat') }}</h3>
+			<h3 class="tab__title">
+				{{ t('llmchat', 'Chat') }}
+			</h3>
 
 			<NcSelect
 				v-if="config.hasProfiles"
 				v-model="defaultProfile"
-				:input-label="t('llmchat', 'Default profile')"
+				:inputLabel="t('llmchat', 'Default profile')"
 				:options="profileOptions"
 				:clearable="false"
 				label="label" />
@@ -20,16 +22,16 @@
 			</p>
 
 			<NcCheckboxRadioSwitch
-				:model-value="config.settings.compact_mode"
+				:modelValue="config.settings.compact_mode"
 				type="switch"
-				@update:model-value="save('compact_mode', $event)">
+				@update:modelValue="save('compact_mode', $event)">
 				{{ t('llmchat', 'Compact mode') }}
 			</NcCheckboxRadioSwitch>
 
 			<NcCheckboxRadioSwitch
-				:model-value="config.settings.markdown_rendering"
+				:modelValue="config.settings.markdown_rendering"
 				type="switch"
-				@update:model-value="save('markdown_rendering', $event)">
+				@update:modelValue="save('markdown_rendering', $event)">
 				{{ t('llmchat', 'Render Markdown') }}
 			</NcCheckboxRadioSwitch>
 
@@ -38,9 +40,9 @@
 				setting, because it changes the request sent to the backend.
 			-->
 			<NcCheckboxRadioSwitch
-				:model-value="config.settings.show_reasoning"
+				:modelValue="config.settings.show_reasoning"
 				type="switch"
-				@update:model-value="save('show_reasoning', $event)">
+				@update:modelValue="save('show_reasoning', $event)">
 				{{ t('llmchat', 'Display reasoning blocks') }}
 			</NcCheckboxRadioSwitch>
 			<p class="tab__hint">
@@ -49,7 +51,9 @@
 		</section>
 
 		<section class="tab__section">
-			<h3 class="tab__title">{{ t('llmchat', 'Tools') }}</h3>
+			<h3 class="tab__title">
+				{{ t('llmchat', 'Tools') }}
+			</h3>
 
 			<!-- issue #3: the agent loop's budget, no longer hardcoded -->
 			<label class="tab__label" for="llm-tool-rounds">
@@ -70,6 +74,9 @@
 			<p class="tab__hint">
 				{{ t('llmchat', 'How often the model may call tools before it has to answer. Higher values let it chain a search into a page fetch, at the cost of latency and tokens. The last round always runs without tools.') }}
 			</p>
+			<p class="tab__hint">
+				{{ t('llmchat', 'The default for every profile. A single profile can override it in its own settings.') }}
+			</p>
 
 			<!-- SearXNG is the only search backend; without a URL, web search is off -->
 			<label class="tab__label" for="llm-searxng-url">
@@ -88,7 +95,9 @@
 		</section>
 
 		<section class="tab__section">
-			<h3 class="tab__title">{{ t('llmchat', 'Archive') }}</h3>
+			<h3 class="tab__title">
+				{{ t('llmchat', 'Archive') }}
+			</h3>
 
 			<label class="tab__label" for="llm-archive-folder">
 				{{ t('llmchat', 'Archive folder') }}
@@ -118,12 +127,10 @@
 
 <script>
 import { getFilePickerBuilder, showError } from '@nextcloud/dialogs'
-import Folder from 'vue-material-design-icons/Folder.vue'
-
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
-
+import Folder from 'vue-material-design-icons/Folder.vue'
 import { MAX_TOOL_ROUNDS, MIN_TOOL_ROUNDS, useConfigStore } from '../store/config.js'
 
 export default {
@@ -161,6 +168,7 @@ export default {
 
 				return current ? { id: current.id, label: current.name } : null
 			},
+
 			set(option) {
 				if (option?.id) {
 					this.save('default_profile_id', option.id)

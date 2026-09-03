@@ -35,17 +35,15 @@
 				@edit="onEdit" />
 		</div>
 
-		<ChatComposer ref="composer" @send="onSend" />
+		<ChatComposer @send="onSend" />
 	</div>
 </template>
 
 <script>
-import Robot from 'vue-material-design-icons/Robot.vue'
-
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcEmptyContent from '@nextcloud/vue/components/NcEmptyContent'
 import NcNoteCard from '@nextcloud/vue/components/NcNoteCard'
-
+import Robot from 'vue-material-design-icons/Robot.vue'
 import ChatComposer from './ChatComposer.vue'
 import ChatHeader from './ChatHeader.vue'
 import ChatMessage from './ChatMessage.vue'
@@ -101,13 +99,13 @@ export default {
 			this.$nextTick(this.scrollToBottom)
 		},
 
-		'chat.activeId'() {
+		'chat.activeId': function() {
 			this.stickToBottom = true
 			this.$nextTick(this.scrollToBottom)
 		},
 
 		/** a search hit was opened: go there instead of to the bottom */
-		'chat.highlightId'(id) {
+		'chat.highlightId': function(id) {
 			clearTimeout(this.highlightTimer)
 			if (!id) {
 				return

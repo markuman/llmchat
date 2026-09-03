@@ -8,7 +8,7 @@
 	<NcDialog
 		:name="t('llmchat', 'Allow this action?')"
 		size="normal"
-		:close-on-click-outside="false"
+		:closeOnClickOutside="false"
 		@closing="deny">
 		<div class="approval">
 			<p class="approval__intro">
@@ -41,7 +41,6 @@
 <script>
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcDialog from '@nextcloud/vue/components/NcDialog'
-
 import { useChatStore } from '../store/chat.js'
 
 const DESCRIPTIONS = {

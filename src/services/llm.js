@@ -15,7 +15,6 @@ export const ERR_HTTP = 'http'
 export const ERR_UNKNOWN = 'unknown'
 
 export class LlmError extends Error {
-
 	constructor(kind, message, { status = null, cause = null } = {}) {
 		super(message)
 		this.name = 'LlmError'
@@ -23,7 +22,6 @@ export class LlmError extends Error {
 		this.status = status
 		this.cause = cause
 	}
-
 }
 
 function stripTrailingSlash(url) {
@@ -110,7 +108,7 @@ function classifyNetworkError(error, connection) {
 }
 
 async function errorFromResponse(response) {
-	let detail = ''
+	let detail
 	try {
 		const text = await response.text()
 		try {
@@ -129,7 +127,7 @@ async function errorFromResponse(response) {
 		return new LlmError(
 			ERR_AUTH,
 			t('llmchat', 'The API key was rejected ({status}).', { status: response.status })
-				+ (detail ? ` ${detail}` : ''),
+			+ (detail ? ` ${detail}` : ''),
 			{ status: response.status },
 		)
 	}
@@ -137,7 +135,7 @@ async function errorFromResponse(response) {
 	return new LlmError(
 		ERR_HTTP,
 		t('llmchat', 'The backend answered with HTTP {status}.', { status: response.status })
-			+ (detail ? ` ${detail}` : ''),
+		+ (detail ? ` ${detail}` : ''),
 		{ status: response.status },
 	)
 }
@@ -323,7 +321,7 @@ function deltaOf(chunk) {
  * @param {object} options.profile profile record
  * @param {Array} options.messages chat messages, oldest first
  * @param {Array} [options.tools] OpenAI-compatible tool definitions
- * @param {Function} options.onDelta called with ({content, reasoning})
+ * @param {(delta: {content: string, reasoning: string}) => void} options.onDelta per-token callback
  * @param {AbortSignal} options.signal abort signal for the stop button
  * @return {Promise<{content: string, reasoning: string, usage: object|null, toolCalls: Array}>} completion
  */

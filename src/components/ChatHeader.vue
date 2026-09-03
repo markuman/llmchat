@@ -52,14 +52,12 @@
 
 <script>
 import { generateUrl } from '@nextcloud/router'
-import Archive from 'vue-material-design-icons/Archive.vue'
-import Delete from 'vue-material-design-icons/Delete.vue'
-import Download from 'vue-material-design-icons/Download.vue'
-
 import NcActionButton from '@nextcloud/vue/components/NcActionButton'
 import NcActions from '@nextcloud/vue/components/NcActions'
 import NcButton from '@nextcloud/vue/components/NcButton'
-
+import Archive from 'vue-material-design-icons/Archive.vue'
+import Delete from 'vue-material-design-icons/Delete.vue'
+import Download from 'vue-material-design-icons/Download.vue'
 import { useChatStore } from '../store/chat.js'
 
 export default {
@@ -138,7 +136,7 @@ export default {
 			const url = URL.createObjectURL(blob)
 			const link = document.createElement('a')
 			link.href = url
-			link.download = `${(chat?.title || 'chat').replace(/[^\w\-]+/g, '-')}.md`
+			link.download = `${(chat?.title || 'chat').replace(/[^\w-]+/g, '-')}.md`
 			link.click()
 			URL.revokeObjectURL(url)
 		},

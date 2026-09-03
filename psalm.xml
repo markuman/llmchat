@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<psalm
+	errorLevel="4"
+	resolveFromConfigFile="true"
+	findUnusedBaselineEntry="false"
+	findUnusedCode="false"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns="https://getpsalm.org/schema/config"
+	xsi:schemaLocation="https://getpsalm.org/schema/config vendor/vimeo/psalm/config.xsd"
+>
+	<projectFiles>
+		<directory name="lib" />
+		<directory name="appinfo" />
+		<ignoreFiles>
+			<directory name="vendor" />
+		</ignoreFiles>
+	</projectFiles>
+	<extraFiles>
+		<directory name="vendor" />
+	</extraFiles>
+	<issueHandlers>
+		<!--
+			Migrations type-hint the schema as Doctrine's Table via docblock,
+			which is what ISchemaWrapper actually hands out — but doctrine/dbal
+			is not a dependency of nextcloud/ocp, so the class is unresolvable
+			outside a real server installation.
+		-->
+		<UndefinedDocblockClass>
+			<errorLevel type="suppress">
+				<directory name="lib/Migration" />
+			</errorLevel>
+		</UndefinedDocblockClass>
+		<!--
+			OCP\Files\IRootFolder extends the private OC\Hooks\Emitter, which
+			the ocp stubs do not ship. Not something an app can fix.
+		-->
+		<MissingDependency>
+			<errorLevel type="suppress">
+				<file name="lib/Service/ArchiveService.php" />
+			</errorLevel>
+		</MissingDependency>
+	</issueHandlers>
+</psalm>

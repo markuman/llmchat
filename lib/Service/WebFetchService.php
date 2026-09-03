@@ -247,7 +247,7 @@ class WebFetchService {
 	 * Reads at most MAX_BODY_BYTES from the response stream, then stops —
 	 * a 5 GB response must not exhaust PHP's memory.
 	 *
-	 * @param resource|string $body
+	 * @param resource|string|null $body
 	 */
 	private function readCapped($body): string {
 		if (is_string($body)) {
@@ -297,9 +297,9 @@ class WebFetchService {
 		}
 
 		$title = null;
-		$titleNodes = $doc->getElementsByTagName('title');
-		if ($titleNodes->length > 0) {
-			$title = trim($titleNodes->item(0)->textContent);
+		$titleNode = $doc->getElementsByTagName('title')->item(0);
+		if ($titleNode !== null) {
+			$title = trim($titleNode->textContent);
 			$title = $title === '' ? null : mb_substr($title, 0, 300);
 		}
 
@@ -312,7 +312,9 @@ class WebFetchService {
 			// iterate backwards: removing nodes invalidates forward iteration
 			for ($i = $junk->length - 1; $i >= 0; $i--) {
 				$node = $junk->item($i);
-				$node?->parentNode?->removeChild($node);
+				if ($node !== null) {
+					$node->parentNode?->removeChild($node);
+				}
 			}
 		}
 
@@ -334,8 +336,8 @@ class WebFetchService {
 	 * keep only the first line, capped.
 	 */
 	private function safeMessage(\Exception $e): string {
-		$message = strtok($e->getMessage(), "\n") ?: 'unknown error';
+		$message = strtok($e->getMessage(), "\n");
 
-		return mb_substr($message, 0, 200);
+		return $message === false ? 'unknown error' : mb_substr($message, 0, 200);
 	}
 }
