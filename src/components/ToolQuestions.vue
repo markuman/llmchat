@@ -52,9 +52,7 @@
 					v-model="custom[question.id]"
 					type="text"
 					class="question__custom"
-					:placeholder="question.options.length > 0
-						? t('llmchat', 'Or type your own answer…')
-						: t('llmchat', 'Your answer…')"
+					:placeholder="customPlaceholder(question)"
 					@keydown.enter.prevent="submit">
 			</fieldset>
 		</div>
@@ -93,7 +91,10 @@ export default {
 		return {
 			/** picked option labels, by question id — a string, or an array when multiple */
 			selection: {},
-			/** free text, by question id; wins over the selection when filled */
+			/**
+			 * Free text, by question id. Replaces a single choice and extends
+			 * a multiple one — see answerFor().
+			 */
 			custom: {},
 		}
 	},
@@ -132,18 +133,44 @@ export default {
 
 	methods: {
 		/**
+		 * Says which of the two combining rules applies, so the difference is
+		 * visible before the answer is sent rather than inferred afterwards.
+		 *
 		 * @param {object} question one entry of the dialog
-		 * @return {string} what the model gets for it, empty when unanswered
+		 * @return {string} placeholder for its text field
+		 */
+		customPlaceholder(question) {
+			if (question.options.length === 0) {
+				return this.t('llmchat', 'Your answer…')
+			}
+
+			return question.multiple
+				? this.t('llmchat', 'Add another answer…')
+				: this.t('llmchat', 'Or type your own answer…')
+		},
+
+		/**
+		 * What the model gets for one question.
+		 *
+		 * Radio and checkbox combine with the text field differently, because
+		 * the controls already promise different things. A radio group is
+		 * "one of these", so typing means "none of them, this instead" and
+		 * replaces the pick. Checkboxes are "all that apply", where the same
+		 * rule would silently drop everything ticked before the user started
+		 * typing — so there the text is one more item on the list.
+		 *
+		 * @param {object} question one entry of the dialog
+		 * @return {string} the answer, empty when unanswered
 		 */
 		answerFor(question) {
 			const typed = (this.custom[question.id] ?? '').trim()
-			if (typed !== '') {
-				return typed
-			}
-
 			const picked = this.selection[question.id]
 
-			return Array.isArray(picked) ? picked.join(', ') : (picked ?? '')
+			if (Array.isArray(picked)) {
+				return [...picked, typed].filter(Boolean).join(', ')
+			}
+
+			return typed !== '' ? typed : (picked ?? '')
 		},
 
 		submit() {

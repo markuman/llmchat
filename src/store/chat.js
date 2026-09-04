@@ -615,13 +615,6 @@ export const useChatStore = defineStore('chat', {
 			const vision = profile.vision === true
 			const definitions = toolDefinitionsFor(enabledTools, { vision })
 			// web_search runs in the browser and needs the instance url
-			const toolOptions = {
-				searxngUrl: useConfigStore().settings.searxng_url ?? '',
-				vision,
-				// ask_user is answered by the UI, so the executor gets a way
-				// back into the store instead of a service call
-				askUser: (questions) => this.askUser(questions),
-			}
 			const approvalRequired = profile.tool_approval !== false
 			let imagesSent = 0
 			// The 5-question cap lives in the tool definition, so it is five
@@ -629,7 +622,27 @@ export const useChatStore = defineStore('chat', {
 			// ask in every one of them, and a chat that interrogates you once
 			// per round has stopped being useful — so the budget is counted
 			// across the whole answer.
+			//
+			// Counted here rather than around the call, because only the
+			// executor knows whether a call was a real question: one with an
+			// empty `questions` array never reaches a dialog, and spending an
+			// attempt on the model's own malformed JSON would punish it for a
+			// mistake it can still fix.
 			let askUserCalls = 0
+
+			const toolOptions = {
+				searxngUrl: useConfigStore().settings.searxng_url ?? '',
+				vision,
+				// ask_user is answered by the UI, so the executor gets a way
+				// back into the store instead of a service call
+				askUser: (questions) => {
+					if (++askUserCalls > MAX_ASK_USER_CALLS) {
+						return Promise.resolve(false)
+					}
+
+					return this.askUser(questions)
+				},
+			}
 
 			// ephemeral working copy — never persisted
 			const loopMessages = [...history]
@@ -680,15 +693,7 @@ export const useChatStore = defineStore('chat', {
 					}
 
 					let outcome
-					if (call.function.name === 'ask_user' && ++askUserCalls > MAX_ASK_USER_CALLS) {
-						outcome = {
-							content: JSON.stringify({
-								error: 'you have already asked the user twice in this answer. '
-									+ 'Answer with what you have and name the assumption you made.',
-							}),
-							summary: 'skipped — too many questions in one answer',
-						}
-					} else if (await this.approveCall(call, approvalRequired)) {
+					if (await this.approveCall(call, approvalRequired)) {
 						outcome = await executeTool(call, enabledTools, toolOptions)
 					} else {
 						// the model gets a plain refusal and can carry on;

@@ -254,7 +254,11 @@ otherwise reaches the model lying on its side. Not a token optimisation: the pro
 server-side anyway and bill for the result. It's that Anthropic hard-refuses anything over 5 MB
 per image, and it does so *after* the tool ran and you approved it — a tool that succeeds and then
 kills the turn is the worst possible outcome. Images already small enough are passed through
-untouched, and animated GIFs are never re-encoded.
+untouched; anything that can't be shrunk and is still too big gets refused with a message the
+model can pass on, which beats losing the turn to a 400.
+
+Animations are resized like anything else. Keeping them sounds right and buys nothing — no
+provider reads past the first frame, so the rest is bytes you pay for twice and nobody looks at.
 
 Turn it on for GPT-4o, Claude, Gemini, LLaVA, Qwen-VL and the like. Leave it off for everything
 else; text files and PDF text extraction work regardless — and a scan without a text layer will

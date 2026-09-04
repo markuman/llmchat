@@ -15,11 +15,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
   than one longer form, so the cap is on the call, not on the dialog. Questions can carry options,
   which the user can pick from or ignore in favour of typing; a free text field is always there,
   because the model guessed the choices and being forced into the closest wrong one is worse than
-  typing. Answering only some of them is allowed: a model asking five questions has usually asked
-  one too many. Dismissing the dialog tells the model so in as many words, with an instruction not
-  to ask again but to name the assumption it went with instead. Two such calls per answer, counted
-  across the whole agent loop rather than per round — the five-question cap sits in the tool
-  definition, so without this a seven-round budget would allow asking in every one of them.
+  typing — where the options are checkboxes the typed answer is added to what was ticked rather
+  than replacing it, since "all that apply" and "one of these" promise different things. Answering
+  only some of them is allowed: a model asking five questions has usually asked one too many.
+  Dismissing the dialog tells the model so in as many words, with an instruction not to ask again
+  but to name the assumption it went with instead. Two such calls per answer, counted across the
+  whole agent loop rather than per round — the five-question cap sits in the tool definition, so
+  without this a seven-round budget would allow asking in every one of them. Counted only when a
+  dialog actually opens, so a malformed call the model can still fix does not cost it an attempt,
+  and a call that finds the budget spent is told exactly that instead of being reported as a
+  dismissal nobody performed.
 - The composer has a file picker (issue #16). The file tools address paths relative to the home,
   and typing one by hand is tedious enough that people instead describe the file and hope the model
   finds it — which costs a search, a listing, and often the wrong file. Picked paths are inserted
@@ -27,7 +32,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
   `nc_read_text`, `nc_read_pdf` and `nc_read_image` take as their `path` argument, so nothing has
   to be translated back. Multi-select and directories are allowed, the picker reopens where the
   last pick happened, and the button only appears for profiles that have the Nextcloud tools —
-  a path in the prompt is noise to a profile that cannot open it.
+  a path in the prompt is noise to a profile that cannot open it. Nextcloud permits `"` in
+  filenames, so the quote character steps aside instead of being escaped — single quotes, or a
+  markdown code fence when the name contains both kinds. Backslash-escaping would fix the parse
+  and create a worse bug: the model would have to strip the escapes again before calling a tool,
+  and one that does not asks the file service for a file that does not exist under that name.
 
 ### Fixed
 - `nc_read_image` scales images down before they go out (issue #14). Until now whatever sat in
@@ -41,11 +50,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
   otherwise reaches the model lying on its side, and transparency flattened onto white, since JPEG
   has no alpha and undefined pixels come out black.
 - An image that is already small in both senses — at most 1568 px and under 1 MB — is passed
-  through untouched: a re-encode would only make it blurrier. GIF and SVG likewise, since a canvas
-  pass would take the first frame of the one and cannot rasterise the other; those are checked
-  against the 5 MB ceiling and refused with a message the model can relay, rather than being
-  allowed to kill the turn. Same for a flat graphic that happens to encode *larger* as JPEG than
-  it was as PNG.
+  through untouched: a re-encode would only make it blurrier. Same for SVG, which is markup a
+  canvas cannot be pointed at, and for a flat graphic that happens to encode *larger* as JPEG than
+  it was as PNG. Every one of those paths goes through the same size check and refuses with a
+  message the model can relay, rather than handing back an oversized original — a passthrough that
+  skips the ceiling is the exact HTTP 400 this change exists to prevent.
+- Animated images are resized like everything else rather than passed through to preserve the
+  animation. No provider looks at more than one frame — OpenAI documents GIF support as
+  non-animated, Anthropic takes a single frame — so the remaining frames are bytes paid for and
+  never read, and an 8 MB animation refused for being over the limit is strictly worse than its
+  first frame at 200 KB. Small ones keep their animation anyway by falling into the size
+  passthrough, where it costs nothing either way.
 
 ## 2.2.2 – 2026-09-04
 

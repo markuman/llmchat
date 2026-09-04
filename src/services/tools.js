@@ -593,7 +593,9 @@ function clampChars(value) {
  *
  * @param {object} call accumulated tool call {id, function: {name, arguments}}
  * @param {string[]} enabled tool ids the profile allows
- * @param {object} options runtime settings ({searxngUrl, vision})
+ * @param {object} options runtime settings ({searxngUrl, vision, askUser}).
+ *   `askUser` resolves with the answers, `null` when the user dismissed the
+ *   dialog, or `false` when the caller refused to show one at all.
  * @return {Promise<{content: string, summary: string, image?: object}>} result + short UI label
  */
 export async function executeTool(call, enabled = [], options = {}) {
@@ -646,6 +648,20 @@ export async function executeTool(call, enabled = [], options = {}) {
 				}
 
 				const answers = await options.askUser(questions)
+				if (answers === false) {
+					// budget spent, no dialog was shown. A different message
+					// from a dismissal: nobody saw these questions, so telling
+					// the model "the user dismissed them" would be a lie it
+					// might repeat back to them.
+					return {
+						content: JSON.stringify({
+							error: 'you have already asked in this answer and the questions were '
+								+ 'not shown. Answer with what you have and name the assumption '
+								+ 'you made.',
+						}),
+						summary: 'skipped — too many questions in one answer',
+					}
+				}
 				if (answers === null) {
 					// dismissed, not answered. Said plainly so the model
 					// carries on with what it has instead of asking again.

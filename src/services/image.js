@@ -44,11 +44,20 @@ export const PROVIDER_MAX_BYTES = 5 * 1024 * 1024
 const PASSTHROUGH_BYTES = 1024 * 1024
 
 /**
- * Types canvas must not touch. GIF loses its animation (createImageBitmap
- * takes the first frame), SVG is markup that browsers refuse to rasterise
- * from a bitmap source anyway.
+ * Types canvas cannot be pointed at. Only SVG: it is markup, and
+ * createImageBitmap either refuses it outright or needs an intrinsic size the
+ * file may not carry.
+ *
+ * Animated formats are deliberately *not* here. Preserving the animation
+ * sounds right and buys nothing: no provider looks at more than one frame —
+ * OpenAI documents GIF support as non-animated, Anthropic takes a single
+ * frame — so the other frames are bytes paid for and never read. Losing them
+ * to a resize is a feature, and an 8 MB animation refused for being over the
+ * limit would be strictly worse than the first frame at 200 KB. Small ones
+ * still keep their animation by falling into the size passthrough below,
+ * where it costs nothing either way.
  */
-const PASSTHROUGH_MIMES = ['image/gif', 'image/svg+xml']
+const PASSTHROUGH_MIMES = ['image/svg+xml']
 
 /**
  * Byte count in the unit a human would use, for messages the model relays.
@@ -98,12 +107,21 @@ export function canvasToJpeg(canvas, quality = JPEG_QUALITY) {
  * Hands the bytes over unchanged, or refuses them when no provider would
  * take them.
  *
+ * Every return of the original bytes goes through here, without exception.
+ * The size check is the entire point of this module — a path that hands back
+ * an oversized original is the HTTP 400 after approval that #14 exists to
+ * prevent, and it is easy to reintroduce by returning the buffer "just this
+ * once" from somewhere else.
+ *
  * @param {ArrayBuffer} buffer original bytes
  * @param {string} mime original type
  * @param {string} why what makes this a passthrough, for the error message
+ * @param {object} [size] pixel dimensions, when they are known
+ * @param {number} [size.width] decoded width
+ * @param {number} [size.height] decoded height
  * @return {object} the result shape, or `{error}`
  */
-function passthrough(buffer, mime, why) {
+function passthrough(buffer, mime, why, { width = null, height = null } = {}) {
 	if (buffer.byteLength > PROVIDER_MAX_BYTES) {
 		return {
 			error: `this image is ${describeBytes(buffer.byteLength)} and ${why}, so it cannot be `
@@ -116,8 +134,8 @@ function passthrough(buffer, mime, why) {
 		b64: arrayBufferToBase64(buffer),
 		mime,
 		size: buffer.byteLength,
-		width: null,
-		height: null,
+		width,
+		height,
 		resized: false,
 	}
 }
@@ -141,7 +159,7 @@ function passthrough(buffer, mime, why) {
  */
 export async function downscaleImage(buffer, mime, { maxEdge = MAX_EDGE, quality = JPEG_QUALITY } = {}) {
 	if (PASSTHROUGH_MIMES.includes(mime)) {
-		return passthrough(buffer, mime, mime === 'image/gif' ? 'animated formats survive no re-encode' : 'a vector image')
+		return passthrough(buffer, mime, 'a vector image')
 	}
 
 	// no decoder, no resize — better the original than nothing, as long as it
@@ -164,16 +182,13 @@ export async function downscaleImage(buffer, mime, { maxEdge = MAX_EDGE, quality
 	try {
 		const longEdge = Math.max(bitmap.width, bitmap.height)
 
-		// already small in both senses: re-encoding would only lose detail
+		// already small in both senses: re-encoding would only lose detail —
+		// and, for an animation, the frames after the first
 		if (longEdge <= maxEdge && buffer.byteLength <= PASSTHROUGH_BYTES) {
-			return {
-				b64: arrayBufferToBase64(buffer),
-				mime,
-				size: buffer.byteLength,
+			return passthrough(buffer, mime, 'already small', {
 				width: bitmap.width,
 				height: bitmap.height,
-				resized: false,
-			}
+			})
 		}
 
 		const scale = Math.min(1, maxEdge / longEdge)
@@ -188,18 +203,21 @@ export async function downscaleImage(buffer, mime, { maxEdge = MAX_EDGE, quality
 
 		const blob = await canvasToJpeg(canvas, quality)
 
-		// pathological case: a flat graphic can encode larger as JPEG than it
+		// Pathological case: a flat graphic can encode larger as JPEG than it
 		// was as PNG. Keep whichever is smaller, as long as nothing was scaled
-		// away in the process.
+		// away in the process — and only when the original is actually
+		// acceptable, which is what passthrough() decides. A 6 MB screenshot
+		// under 1568 px whose JPEG comes out larger still cannot be sent, and
+		// returning it here because it is "the smaller of the two" would put
+		// the HTTP 400 back exactly where this module removed it.
 		if (scale === 1 && blob.size >= buffer.byteLength) {
-			return {
-				b64: arrayBufferToBase64(buffer),
-				mime,
-				size: buffer.byteLength,
+			// Its own error when both are too big, not the one below: nothing
+			// was scaled here, so "even scaled down" would be a lie, and the
+			// JPEG is the larger of the two anyway.
+			return passthrough(buffer, mime, 'a re-encode only makes it larger', {
 				width: bitmap.width,
 				height: bitmap.height,
-				resized: false,
-			}
+			})
 		}
 
 		if (blob.size > PROVIDER_MAX_BYTES) {
