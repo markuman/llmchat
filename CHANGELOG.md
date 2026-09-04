@@ -5,6 +5,81 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+## 2.2.1 – 2026-09-04
+
+### Changed
+- `nc_read_pdf_page` renders at 1568 px on the page's *longer* edge instead of 1024 px on its
+  width, and hands over a JPEG rather than a PNG. Scaling by width left a landscape page — a
+  timetable, a spreadsheet export — at roughly two thirds of the resolution on the edge where
+  the small print sits, which is exactly the kind of document that gets rendered instead of read.
+  JPEG because the encode runs on the main thread, where deflating close to two megapixels is the
+  most expensive step by far: it encodes several times faster and comes out around a tenth of the
+  size, which counts twice over since base64 adds a third on the way out. On rasterised text q0.85
+  is indistinguishable to a vision model, and the resolution bought with it is worth far more.
+- `nc_read_pdf` also returns what the annotations carry. `getTextContent()` only sees the content
+  stream, so a filled-in form or a commented page came back empty or half — for an AcroForm that
+  is the difference between nothing and everything. Values already present in the text layer are
+  dropped rather than handed over twice.
+
+### Fixed
+- A PDF without a text layer told the model to fall back to `nc_read_pdf_page` even when the
+  profile had no vision, where that function is not offered at all — so the only exit from the
+  dead end was another dead end. Without vision the note now names the actual remedy: the
+  per-profile "Model can see images" switch.
+- File reads are capped by size, not just by characters. The character cap only ever applied after
+  the download, so `nc_read_text` or `nc_read_pdf` pointed at an 800 MB scan had the browser fetch
+  all of it and pdf.js parse it before a single character was truncated. `Content-Length` rejects
+  the read before the transfer starts and a running total rejects it during, since that header is
+  absent on a chunked response and is the server's claim rather than a measurement.
+- Path traversal is refused instead of rewritten. Dropping `.` and `..` turned
+  `Documents/../secret.txt` into `Documents/secret.txt` — a different file than the one asked for,
+  handed over without a word.
+
+## 2.2.0 – 2026-09-04
+
+### Added
+- `nc_read` reaches the file service, not just Collectives: `nc_list_files` browses a directory,
+  `nc_read_text` reads markdown, plain text, csv, html or a log, and `nc_read_pdf` extracts a
+  PDF's text layer. Paths are relative to the user's home, which is what the Files app shows and
+  what a search hit hands back, so the model can go from finding a file to reading it without
+  translating anything. No new checkbox and no new approval rule — they live under the existing
+  `nc_read` id and inherit its confirmation prompt. Reads are capped at 50 MB, a text read at
+  what its character cap could possibly need, and an image read at the image limit — the
+  character caps only apply after the download, so without a byte ceiling a model pointing at an
+  800 MB scan would have the browser fetch all of it first. `Content-Length` fails the read
+  before the transfer starts, a running total during it, since that header is absent on a
+  chunked response and is the server's claim rather than a measurement.
+- A path containing `.` or `..` segments is refused rather than silently stripped: rewriting
+  `Documents/../secret.txt` to `Documents/secret.txt` would hand the model a different file than
+  it asked for without a word about it, and a confidently wrong answer is worse than an error.
+  Escaping the home was never the risk — DAV resolves the path itself and stops at the user root.
+- New per-profile flag **"Model can see images"**, off by default. With it on, `nc_read` also
+  offers `nc_read_image` and `nc_read_pdf_page` (one page rendered as a PNG). Both are hidden
+  entirely without the flag: handing base64 to a text-only model fills its context with data it
+  cannot read, at full token price. Deliberately not inferred from the model name — that list
+  changes weekly and a wrong guess fails in both directions. One image per answer and 10 MB per
+  file, both hard; the image rides in a multimodal message and stays ephemeral like every other
+  tool round.
+- PDF handling uses `pdfjs-dist` in the browser, loaded lazily. Not the `files_pdfviewer` app,
+  which exports no module and can be switched off by an admin, and not a PHP parser, because tool
+  calls deliberately do not grow server-side dependencies.
+
+### Changed
+- The token estimate in the status bar understands multimodal messages instead of stringifying
+  the content array.
+- Emitted assets that are neither image, style nor font now land in `js/` rather than a `dist/`
+  directory of their own — untracked by `.gitignore`, unswept by `make clean` and easy to miss
+  when deploying. The pdf.js worker was the first such asset.
+
+### Fixed
+- `make build` and `make lint` repair `node_modules/` when its native packages belong to another
+  platform. rollup and esbuild ship their native part per platform and npm installs only the
+  matching one, but `node_modules/` is a bind mount shared with the container — so running npm on
+  the host swaps the musl build the alpine image needs for the host's glibc one, and the next
+  containerised build dies with a `Cannot find module @rollup/rollup-<platform>` that names a
+  package nothing depends on by name. Timestamps could not catch it: the tree ends up newer than
+  the lock file and looks up to date. The check now asks rollup whether it loads.
+
 ## 2.1.0 – 2026-09-03
 
 ### Added

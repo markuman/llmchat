@@ -14,6 +14,14 @@ VERSION     := $(shell sed -n 's:.*<version>\(.*\)</version>.*:\1:p' appinfo/inf
 # node:24, not 22: the lock file was written by npm 11+, and npm 10 refuses it
 # with "Missing: pinia@4.0.3 from lock file" because it resolves that peer
 # dependency differently.
+#
+# No architecture is pinned anywhere in this file and none should be: both
+# images are multi-arch manifests, so podman pulls the arm64 variant on a
+# Raspberry Pi 5 by itself, and `npm ci` then picks the matching native
+# packages out of the lock file — which lists every platform, arm64 included.
+# A separate arm target would be a second thing to keep in sync for no gain.
+# What does bite on a Pi is building in the container and then running npm on
+# the host: see check-native.
 NODE_IMAGE  := docker.io/library/node:24-alpine
 PHP_IMAGE   := docker.io/library/php:8.4-cli-alpine
 # psalm/phar 5.x refuses to start on 8.4, see the psalm target
@@ -39,7 +47,26 @@ RUN_PHP  = $(RUN) -e COMPOSER_HOME=/cache/composer $(PHP_IMAGE)
 # The one file that proves the frontend build ran.
 MAIN_BUNDLE := js/$(APP_ID)-main.mjs
 
-.PHONY: help all build test lint psalm cs-fix deps php-deps release deploy clean distclean shell shell-php version
+# rollup and esbuild ship their native part as per-platform optional packages,
+# and npm installs exactly the one that matches. node_modules/ is a bind mount
+# shared with the host, so an `npm install` run outside the container replaces
+# the musl build the alpine image needs with the host's glibc one (or, on a
+# Raspberry Pi, an arm64 one with an x86 one). The tree still looks complete —
+# only the load fails, with a "Cannot find module @rollup/rollup-<platform>"
+# that names a package nothing ever asked for by name.
+#
+# Timestamps cannot catch this: node_modules ends up *newer* than the lock
+# file, so make would happily consider it up to date. So ask rollup instead of
+# the mtime — importing it is what the build does two seconds later anyway.
+#
+# Deliberately not RUN_NODE: that passes -t, and podman wires a TTY straight
+# through to the terminal, so the probe's own stack trace would show up even
+# with stderr redirected and read exactly like a real build failure.
+NATIVE_PROBE = $(PODMAN) run --rm --userns=keep-id \
+	-v "$(CURDIR)":/app:z -w /app -e HOME=/cache \
+	$(NODE_IMAGE) node -e 'import("rollup")'
+
+.PHONY: help all build test lint psalm cs-fix deps php-deps check-native release deploy clean distclean shell shell-php version
 .DEFAULT_GOAL := help
 
 # ---------------------------------------------------------------- build ----
@@ -49,14 +76,30 @@ build: $(MAIN_BUNDLE) ## build js/ and css/ — all a deploy needs
 all: build
 
 $(MAIN_BUNDLE): node_modules $(shell find src -type f 2>/dev/null) vite.config.js
+	@$(MAKE) --no-print-directory check-native
 	$(RUN_NODE) npm run build
 	@echo "==> assets ready: js/ $$(du -sh js | cut -f1), css/ $$(du -sh css | cut -f1)"
+
+# Repairs node_modules when its native packages are for the wrong platform.
+# Silent when everything is fine, which is the normal case.
+check-native: node_modules ## verify the native rollup/esbuild binaries match the container
+	@$(NATIVE_PROBE) 2>/dev/null || { \
+		echo "==> native modules do not match $(NODE_IMAGE) — reinstalling"; \
+		echo "    (an npm run outside the container swapped them for the host's)"; \
+		rm -rf node_modules; \
+		$(MAKE) --no-print-directory node_modules; \
+		$(NATIVE_PROBE) >/dev/null 2>&1 || { \
+			echo "still broken after npm ci — that is not the platform mismatch" >&2; \
+			exit 1; \
+		}; \
+	}
 
 # ----------------------------------------------------------------- test ----
 
 test: lint ## eslint + php -l + php-cs-fixer
 
 lint: node_modules vendor
+	@$(MAKE) --no-print-directory check-native
 	@echo "==> eslint"
 	$(RUN_NODE) npm run lint
 	@echo "==> php -l"
@@ -133,7 +176,7 @@ help: ## show this help
 	@echo
 	@echo "targets:"
 	@awk 'BEGIN { FS = ":.*## " } \
-		/^[a-zA-Z0-9_.-]+:.*## / { printf "  %-10s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+		/^[a-zA-Z0-9_.-]+:.*## / { printf "  %-12s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 	@echo
 	@echo "images: $(NODE_IMAGE)"
 	@echo "        $(PHP_IMAGE)"

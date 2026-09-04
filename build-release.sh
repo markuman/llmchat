@@ -37,8 +37,12 @@ if ! grep -qE "^## ${VERSION//./\\.} " CHANGELOG.md; then
 	exit 1
 fi
 
+# Delegated to make rather than calling npm here: it builds in the container
+# and repairs node_modules first when its native packages are for the host
+# instead of the image. `make release` has built already, so this is normally
+# a no-op that just proves the artefacts match the current sources.
 echo "==> building frontend"
-npm run build --silent
+make --no-print-directory build >/dev/null
 
 rm -rf "${BUILD_DIR}"
 mkdir -p "${BUILD_DIR}/${APP_ID}"

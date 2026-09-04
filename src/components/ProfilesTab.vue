@@ -202,12 +202,27 @@
 			<NcCheckboxRadioSwitch
 				:modelValue="form.enabled_tools.includes('nc_read')"
 				@update:modelValue="toggleTool('nc_read', $event)">
-				{{ t('llmchat', 'Read Nextcloud — search and collectives, read-only') }}
+				{{ t('llmchat', 'Read Nextcloud — search, files and collectives, read-only') }}
 			</NcCheckboxRadioSwitch>
 
 			<p class="form__hint">
 				{{ toolsHint }}
 			</p>
+
+			<!--
+				Not derived from the model name: the list of vision-capable
+				models changes weekly and a wrong guess either hides a working
+				feature or sends a megabyte of base64 to something that reads
+				it as gibberish. So the user says.
+			-->
+			<template v-if="form.enabled_tools.includes('nc_read')">
+				<NcCheckboxRadioSwitch v-model="form.vision" type="switch">
+					{{ t('llmchat', 'Model can see images') }}
+				</NcCheckboxRadioSwitch>
+				<p class="form__hint">
+					{{ visionHint }}
+				</p>
+			</template>
 
 			<template v-if="form.enabled_tools.length > 0">
 				<NcCheckboxRadioSwitch v-model="form.tool_approval" type="switch">
@@ -283,6 +298,7 @@ function emptyForm(connectionId = null) {
 		tool_approval: true,
 		// empty means "follow the general setting"
 		tool_rounds: '',
+		vision: false,
 	}
 }
 
@@ -370,7 +386,7 @@ export default {
 			// what matters is what ends up at the model, so name the most
 			// far-reaching consequence of the current selection
 			if (tools.includes('nc_read')) {
-				return `${base} ${this.t('llmchat', 'Nextcloud content the model reads is sent to the model — think twice with a hosted provider.')}`
+				return `${base} ${this.t('llmchat', 'Nextcloud content the model reads — pages, files, PDFs — is sent to the model. Think twice with a hosted provider.')}`
 			}
 			if (tools.includes('web_fetch')) {
 				return `${base} ${this.t('llmchat', 'Fetching runs on this Nextcloud server, and the page content is sent to the model.')}`
@@ -380,6 +396,14 @@ export default {
 			}
 
 			return `${base} ${this.t('llmchat', 'Nothing leaves your browser with this selection.')}`
+		},
+
+		visionHint() {
+			if (!this.form.vision) {
+				return this.t('llmchat', 'Off: the model can read text files and extract PDF text, but images are not offered to it at all.')
+			}
+
+			return this.t('llmchat', 'Only for models that actually understand images (GPT-4o, Claude, Gemini, LLaVA, Qwen-VL and the like). Adds reading images and rendering a PDF page as one. One image per answer, up to 10 MB.')
 		},
 
 		toolRoundsPlaceholder() {
@@ -461,6 +485,7 @@ export default {
 				enabled_tools: [...(profile.enabled_tools ?? [])],
 				tool_approval: profile.tool_approval ?? true,
 				tool_rounds: profile.tool_rounds ?? '',
+				vision: profile.vision === true,
 			}
 			this.$nextTick(this.autogrow)
 		},
@@ -507,6 +532,8 @@ export default {
 					tool_rounds: this.form.tool_rounds === '' || this.form.tool_rounds === null
 						? null
 						: Number(this.form.tool_rounds),
+
+					vision: this.form.vision,
 				}
 
 				if (this.form.id) {
@@ -606,6 +633,7 @@ export default {
 					enabled_tools: p.enabled_tools,
 					tool_approval: p.tool_approval,
 					tool_rounds: p.tool_rounds ?? null,
+					vision: p.vision === true,
 				})),
 			}
 

@@ -1,7 +1,7 @@
 {
 	"name": "llmchat",
 	"description": "Nextcloud LLM chat app",
-	"version": "2.1.0",
+	"version": "2.2.1",
 	"license": "AGPL-3.0-or-later",
 	"private": true,
 	"type": "module",
@@ -23,6 +23,7 @@
 		"dompurify": "^3.2.7",
 		"highlight.js": "^11.11.1",
 		"marked": "^15.0.12",
+		"pdfjs-dist": "^4.10.38",
 		"pinia": "^2.3.1",
 		"vue": "^3.5.18",
 		"vue-material-design-icons": "^5.3.1"

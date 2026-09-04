@@ -18,6 +18,7 @@
 import axios from '@nextcloud/axios'
 import { generateUrl } from '@nextcloud/router'
 import * as nc from './nextcloud.js'
+import { pdfPageToImage, pdfToText } from './pdf.js'
 
 /**
  * Tool ids as stored per profile. Kept in sync with ProfileService::TOOL_IDS.
@@ -27,7 +28,7 @@ import * as nc from './nextcloud.js'
  * necessarily does, and `nc_read` reads your own Nextcloud content.
  *
  * One id can expose several functions — `nc_read` is a single checkbox in the
- * profile but four functions for the model, because "search", "list" and
+ * profile but nine functions for the model, because "search", "list" and
  * "read" are much easier for a model to aim at than one call with a mode
  * parameter.
  */
@@ -37,12 +38,28 @@ export const TOOL_IDS = ['datetime', 'web_search', 'web_fetch', 'nc_read']
  * Tools whose effects warrant asking the user first (spec: approval mode).
  * `web_search` is deliberately absent — confirming every research query would
  * make the feature unusable, and a search leaks far less than a fetch.
+ *
+ * The file tools need no entry of their own: they live under `nc_read`, so
+ * they inherit its approval automatically.
  */
 export const APPROVAL_TOOLS = ['web_fetch', 'nc_read']
+
+/**
+ * Functions that hand actual image data to the model. Only offered when the
+ * profile says the model can see — everything else gets a wall of base64 it
+ * cannot read, at full token price.
+ */
+export const VISION_TOOLS = ['nc_read_image', 'nc_read_pdf_page']
 
 /** Trimmed to keep tool results small; the model can fetch a url for detail. */
 const MAX_SEARCH_RESULTS = 8
 const SEARCH_TIMEOUT_MS = 20000
+
+/**
+ * Hard ceiling for `max_chars`. The default is much lower; this only stops a
+ * model from asking for a whole novel in one go.
+ */
+const MAX_TEXT_CHARS_CAP = 120000
 
 /** OpenAI-compatible tool definitions, keyed by tool id. */
 const DEFINITIONS = {
@@ -95,7 +112,7 @@ const DEFINITIONS = {
 		},
 	}],
 
-	// One checkbox, four functions. Read-only throughout: nothing here can
+	// One checkbox, nine functions. Read-only throughout: nothing here can
 	// change anything in Nextcloud.
 	nc_read: [{
 		type: 'function',
@@ -158,6 +175,109 @@ const DEFINITIONS = {
 				required: ['collective_id', 'page_id'],
 			},
 		},
+	}, {
+		type: 'function',
+		function: {
+			name: 'nc_list_files',
+			description: "List files and directories in the user's Nextcloud, by path relative "
+				+ 'to their home (e.g. "Documents" or "Documents/2025"). Returns name, size '
+				+ 'and whether an entry is a directory. Use this to find out what exists, then '
+				+ 'read it with nc_read_text (text, markdown, csv, log), nc_read_pdf / '
+				+ 'nc_read_pdf_page (PDFs) or nc_read_image (photos).',
+			parameters: {
+				type: 'object',
+				properties: {
+					path: {
+						type: 'string',
+						description: 'Directory path relative to the home. Omit or pass "" for the root.',
+					},
+				},
+				required: [],
+			},
+		},
+	}, {
+		type: 'function',
+		function: {
+			name: 'nc_read_text',
+			description: 'Read a text file (markdown, plain text, csv, html, log) from '
+				+ 'Nextcloud. Content may be truncated. Not for PDFs — use nc_read_pdf.',
+			parameters: {
+				type: 'object',
+				properties: {
+					path: {
+						type: 'string',
+						description: 'File path relative to the home, e.g. "Documents/notes.md".',
+					},
+					max_chars: {
+						type: 'integer',
+						description: 'Optional cap on the returned text. Defaults to 24000.',
+					},
+				},
+				required: ['path'],
+			},
+		},
+	}, {
+		type: 'function',
+		function: {
+			name: 'nc_read_pdf',
+			description: 'Extract the text of a PDF stored in Nextcloud. Good for text-heavy '
+				+ 'documents; layout, tables and diagrams are lost. Returns nothing useful for '
+				+ 'a scanned document — use nc_read_pdf_page for those. May be truncated.',
+			parameters: {
+				type: 'object',
+				properties: {
+					path: {
+						type: 'string',
+						description: 'File path relative to the home, e.g. "Documents/report.pdf".',
+					},
+					max_chars: {
+						type: 'integer',
+						description: 'Optional cap across all pages. Defaults to 24000.',
+					},
+				},
+				required: ['path'],
+			},
+		},
+	}, {
+		type: 'function',
+		function: {
+			name: 'nc_read_image',
+			description: 'Load an image (jpg, png, webp, gif) from Nextcloud and look at it. '
+				+ 'The image arrives in the next message. Only one image per answer, and at '
+				+ 'most 10 MB — pick the one that matters.',
+			parameters: {
+				type: 'object',
+				properties: {
+					path: {
+						type: 'string',
+						description: 'File path relative to the home, e.g. "Photos/holiday.jpg".',
+					},
+				},
+				required: ['path'],
+			},
+		},
+	}, {
+		type: 'function',
+		function: {
+			name: 'nc_read_pdf_page',
+			description: 'Render one page of a PDF from Nextcloud as an image and look at it. '
+				+ 'Use this when layout, tables, diagrams or a scan matter, or when nc_read_pdf '
+				+ 'returned no text. Counts against the one-image-per-answer limit.',
+			parameters: {
+				type: 'object',
+				properties: {
+					path: {
+						type: 'string',
+						description: 'File path relative to the home.',
+					},
+					page: {
+						type: 'integer',
+						description: 'Page number, 1-based.',
+					},
+				},
+				required: ['path', 'page'],
+			},
+		},
 	}],
 }
 
@@ -171,14 +291,19 @@ const TOOL_ID_BY_FUNCTION = Object.fromEntries(Object.entries(DEFINITIONS).flatM
  * Definitions for the tools a profile allows, in a stable order.
  *
  * @param {string[]} enabled tool ids from the profile
+ * @param {object} [options] options
+ * @param {boolean} [options.vision] the model can see images
  * @return {Array} OpenAI-compatible tool definitions
  */
-export function toolDefinitionsFor(enabled) {
+export function toolDefinitionsFor(enabled, { vision = false } = {}) {
 	if (!Array.isArray(enabled) || enabled.length === 0) {
 		return []
 	}
 
-	return TOOL_IDS.filter((id) => enabled.includes(id)).flatMap((id) => DEFINITIONS[id])
+	return TOOL_IDS
+		.filter((id) => enabled.includes(id))
+		.flatMap((id) => DEFINITIONS[id])
+		.filter((definition) => vision || !VISION_TOOLS.includes(definition.function.name))
 }
 
 /**
@@ -297,15 +422,32 @@ async function searchWeb(query, baseUrl) {
 	return { query, results }
 }
 
+/** Shorthand for the error shape the model gets back. */
+function fail(name, message) {
+	return { content: JSON.stringify({ error: message }), summary: `${name}: ${message}` }
+}
+
+function clampChars(value) {
+	const requested = Number(value ?? nc.MAX_TEXT_CHARS)
+
+	return Number.isFinite(requested)
+		? Math.min(Math.max(1, Math.floor(requested)), MAX_TEXT_CHARS_CAP)
+		: nc.MAX_TEXT_CHARS
+}
+
 /**
  * Executes one tool call and returns the result as a string for the
  * `role: "tool"` message. Never throws: the model handles an error text
  * better than the loop handles an exception.
  *
+ * Image results carry their data in a separate `image` field, never inside
+ * `content` — the caller turns it into a proper multimodal message, and a
+ * megabyte of base64 has no business in a `role: "tool"` string.
+ *
  * @param {object} call accumulated tool call {id, function: {name, arguments}}
  * @param {string[]} enabled tool ids the profile allows
- * @param {object} options runtime settings ({searxngUrl})
- * @return {Promise<{content: string, summary: string}>} result + short UI label
+ * @param {object} options runtime settings ({searxngUrl, vision})
+ * @return {Promise<{content: string, summary: string, image?: object}>} result + short UI label
  */
 export async function executeTool(call, enabled = [], options = {}) {
 	const name = call.function?.name ?? ''
@@ -318,6 +460,13 @@ export async function executeTool(call, enabled = [], options = {}) {
 			content: JSON.stringify({ error: `tool "${name}" is not available` }),
 			summary: `${name}: not available`,
 		}
+	}
+
+	// second line of defence: these are already filtered out of the
+	// definitions, but a model that guessed the name still must not get a
+	// picture it cannot read
+	if (VISION_TOOLS.includes(name) && options.vision !== true) {
+		return fail(name, 'this model is not set up to see images')
 	}
 
 	let args
@@ -421,6 +570,121 @@ export async function executeTool(call, enabled = [], options = {}) {
 					summary: data.error
 						? `nc_read_page: ${data.error}`
 						: `${data.title}${data.truncated ? ' (truncated)' : ''}`,
+				}
+			}
+
+			case 'nc_list_files': {
+				const path = String(args.path ?? '').trim()
+				const data = await nc.listFiles(path)
+				if (data.error) {
+					return fail(name, data.error)
+				}
+				return {
+					content: JSON.stringify(data),
+					summary: `${data.files.length} entries in ${data.path || '/'}`,
+				}
+			}
+
+			case 'nc_read_text': {
+				const path = String(args.path ?? '').trim()
+				if (!path) {
+					return fail(name, 'path missing')
+				}
+				const data = await nc.readText(path, clampChars(args.max_chars))
+				if (data.error) {
+					return fail(name, data.error)
+				}
+				return {
+					content: JSON.stringify(data),
+					summary: `${data.path} — ${data.chars} chars${data.truncated ? ' (truncated)' : ''}`,
+				}
+			}
+
+			case 'nc_read_pdf': {
+				const path = String(args.path ?? '').trim()
+				if (!path) {
+					return fail(name, 'path missing')
+				}
+				const file = await nc.readFile(path)
+				if (file.error) {
+					return fail(name, file.error)
+				}
+				// vision decides how a text-less PDF gets explained: pointing
+				// at nc_read_pdf_page only helps when that tool is on offer
+				const parsed = await pdfToText(file.bytes, {
+					maxChars: clampChars(args.max_chars),
+					vision: options.vision === true,
+				})
+				return {
+					content: JSON.stringify({ path: file.path, ...parsed }),
+					summary: `${file.path} — ${parsed.num_pages} pages, `
+						+ `${parsed.total_chars} chars${parsed.truncated ? ' (truncated)' : ''}`,
+				}
+			}
+
+			case 'nc_read_image': {
+				const path = String(args.path ?? '').trim()
+				if (!path) {
+					return fail(name, 'path missing')
+				}
+				// the transfer stops at the image limit rather than the general
+				// one, so an oversized photo costs a few chunks, not 10 MB
+				const file = await nc.readFile(path, { maxBytes: nc.MAX_IMAGE_BYTES })
+				if (file.error) {
+					return fail(name, file.error)
+				}
+				if (!file.mime.startsWith('image/')) {
+					return fail(name, `${file.path} is ${file.mime}, not an image`)
+				}
+				return {
+					// the bytes travel in `image`, not in the tool result
+					content: JSON.stringify({
+						path: file.path,
+						mime: file.mime,
+						size: file.size,
+						note: 'the image follows in the next message',
+					}),
+					summary: `${file.path} (${Math.round(file.size / 1024)} KB, ${file.mime})`,
+					image: {
+						b64: nc.arrayBufferToBase64(file.bytes),
+						mime: file.mime,
+						label: `${file.path} (${Math.round(file.size / 1024)} KB)`,
+					},
+				}
+			}
+
+			case 'nc_read_pdf_page': {
+				const path = String(args.path ?? '').trim()
+				const page = Math.floor(Number(args.page ?? 0))
+				if (!path || !Number.isFinite(page) || page < 1) {
+					return fail(name, 'path and a 1-based page number are required')
+				}
+				const file = await nc.readFile(path)
+				if (file.error) {
+					return fail(name, file.error)
+				}
+				const rendered = await pdfPageToImage(file.bytes, page)
+				if (rendered.error) {
+					return fail(name, rendered.error)
+				}
+				if (rendered.size > nc.MAX_IMAGE_BYTES) {
+					return fail(name, 'the rendered page came out larger than 10 MB — use nc_read_pdf instead')
+				}
+				return {
+					content: JSON.stringify({
+						path: file.path,
+						page: rendered.page,
+						mime: rendered.mime,
+						width: rendered.width,
+						height: rendered.height,
+						note: 'the rendered page follows in the next message',
+					}),
+					summary: `${file.path} page ${rendered.page} (${rendered.width}×${rendered.height})`,
+					image: {
+						b64: rendered.b64,
+						mime: rendered.mime,
+						label: `${file.path}, page ${rendered.page}`,
+					},
 				}
 			}
 

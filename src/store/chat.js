@@ -560,10 +560,17 @@ export const useChatStore = defineStore('chat', {
 			}
 
 			const enabledTools = Array.isArray(profile.enabled_tools) ? profile.enabled_tools : []
-			const definitions = toolDefinitionsFor(enabledTools)
+			// without the vision flag the image tools are not even offered —
+			// a text-only model would just fill its context with base64
+			const vision = profile.vision === true
+			const definitions = toolDefinitionsFor(enabledTools, { vision })
 			// web_search runs in the browser and needs the instance url
-			const toolOptions = { searxngUrl: useConfigStore().settings.searxng_url ?? '' }
+			const toolOptions = {
+				searxngUrl: useConfigStore().settings.searxng_url ?? '',
+				vision,
+			}
 			const approvalRequired = profile.tool_approval !== false
+			let imagesSent = 0
 
 			// ephemeral working copy — never persisted
 			const loopMessages = [...history]
@@ -625,6 +632,20 @@ export const useChatStore = defineStore('chat', {
 						}
 					}
 
+					// one image per answer, hard: two photos in one turn is
+					// rarely what the user meant and always what the token
+					// bill notices
+					if (outcome.image && ++imagesSent > 1) {
+						outcome = {
+							content: JSON.stringify({
+								error: 'one image per answer is the hard limit — you already '
+									+ 'loaded one. Answer with what you have, or ask the user '
+									+ 'which file matters.',
+							}),
+							summary: 'skipped — one image per answer',
+						}
+					}
+
 					if (target) {
 						if (!target.tool_log) {
 							target.tool_log = []
@@ -640,6 +661,24 @@ export const useChatStore = defineStore('chat', {
 						tool_call_id: call.id,
 						content: outcome.content,
 					})
+
+					// A tool result is a plain string in every OpenAI-compatible
+					// API — image blocks are only valid on a user message. So
+					// the tool answers with metadata and the picture arrives
+					// right after it, which is also how the model is told to
+					// expect it in the tool description.
+					if (outcome.image) {
+						loopMessages.push({
+							role: 'user',
+							content: [
+								{ type: 'text', text: `Attached: ${outcome.image.label}` },
+								{
+									type: 'image_url',
+									image_url: { url: `data:${outcome.image.mime};base64,${outcome.image.b64}` },
+								},
+							],
+						})
+					}
 				}
 			}
 
