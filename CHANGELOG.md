@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+## 2.2.2 – 2026-09-04
+
 ### Changed
 - `nc_read_pdf` flags an extraction that came out suspiciously thin. A timetable has a text layer,
   so nothing failed — it yields a few hundred words in reading order, which looks like a
