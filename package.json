@@ -23,6 +23,7 @@
 		"dompurify": "^3.2.7",
 		"highlight.js": "^11.11.1",
 		"marked": "^15.0.12",
+		"pdfjs-dist": "^4.10.38",
 		"pinia": "^2.3.1",
 		"vue": "^3.5.18",
 		"vue-material-design-icons": "^5.3.1"

@@ -60,6 +60,7 @@ class ProfileService {
 		$profile->setEnabledTools($this->normalizeTools($data['enabled_tools'] ?? []));
 		$profile->setToolApproval((bool)($data['tool_approval'] ?? true));
 		$profile->setToolRounds($this->nullableToolRounds($data['tool_rounds'] ?? null));
+		$profile->setVision((bool)($data['vision'] ?? false));
 		$profile->setSortOrder($this->mapper->maxSortOrder($userId) + 1);
 
 		// the very first profile is the default, no matter what the client says
@@ -112,6 +113,9 @@ class ProfileService {
 		if (array_key_exists('tool_rounds', $data)) {
 			$profile->setToolRounds($this->nullableToolRounds($data['tool_rounds']));
 		}
+		if (array_key_exists('vision', $data)) {
+			$profile->setVision((bool)$data['vision']);
+		}
 
 		$makeDefault = array_key_exists('is_default', $data) && (bool)$data['is_default'];
 		if ($makeDefault) {
@@ -147,6 +151,7 @@ class ProfileService {
 		$copy->setEnabledTools($source->getEnabledTools());
 		$copy->setToolApproval($source->getToolApproval());
 		$copy->setToolRounds($source->getToolRounds());
+		$copy->setVision($source->getVision());
 		$copy->setIsDefault(false);
 		$copy->setSortOrder($source->getSortOrder() + 1);
 
@@ -217,6 +222,7 @@ class ProfileService {
 				'enabled_tools' => $raw['enabled_tools'] ?? [],
 				'tool_approval' => $raw['tool_approval'] ?? true,
 				'tool_rounds' => $raw['tool_rounds'] ?? null,
+				'vision' => $raw['vision'] ?? false,
 				'is_default' => false,
 			]);
 		}

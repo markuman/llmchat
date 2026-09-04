@@ -37,6 +37,8 @@ use OCP\AppFramework\Db\Entity;
  * @method void setToolApproval(bool $toolApproval)
  * @method int|null getToolRounds()
  * @method void setToolRounds(?int $toolRounds)
+ * @method bool getVision()
+ * @method void setVision(bool $vision)
  * @method int getSortOrder()
  * @method void setSortOrder(int $sortOrder)
  */
@@ -61,6 +63,12 @@ class Profile extends Entity implements \JsonSerializable {
 	protected bool $toolApproval = true;
 	/** null = follow the general setting, see SettingsService::clampToolRounds() */
 	protected ?int $toolRounds = null;
+	/**
+	 * The model can actually see images. Off by default — a text-only model
+	 * handed base64 fills its context with data it cannot read, so the image
+	 * tools are not even offered without this.
+	 */
+	protected bool $vision = false;
 	protected int $sortOrder = 0;
 
 	public function __construct() {
@@ -77,6 +85,7 @@ class Profile extends Entity implements \JsonSerializable {
 		$this->addType('enabledTools', 'string');
 		$this->addType('toolApproval', 'boolean');
 		$this->addType('toolRounds', 'integer');
+		$this->addType('vision', 'boolean');
 		$this->addType('sortOrder', 'integer');
 	}
 
@@ -95,6 +104,7 @@ class Profile extends Entity implements \JsonSerializable {
 			'enabled_tools' => $this->getEnabledToolsArray(),
 			'tool_approval' => $this->getToolApproval(),
 			'tool_rounds' => $this->getToolRounds(),
+			'vision' => $this->getVision(),
 			'sort_order' => $this->getSortOrder(),
 		];
 	}
@@ -127,6 +137,7 @@ class Profile extends Entity implements \JsonSerializable {
 			'enabled_tools' => $this->getEnabledToolsArray(),
 			'tool_approval' => $this->getToolApproval(),
 			'tool_rounds' => $this->getToolRounds(),
+			'vision' => $this->getVision(),
 		];
 	}
 }

@@ -197,7 +197,8 @@ chat history afterwards.
 ### ☁️ Nextcloud tools — no extra infrastructure
 
 `nc_read` gives the model Unified Search across your files, calendar, contacts, notes, Deck and
-Talk, plus full read access to your Collectives wikis.
+Talk, full read access to your Collectives wikis, and your actual files: browse directories, read
+text and markdown, extract the text of a PDF.
 
 <img src="img/4-nextcloud-tools.png" alt="The model listing the user's collectives with their emoji and ids after one tool call" width="820">
 
@@ -206,9 +207,28 @@ container, no app password, no service account. Your session, your permissions �
 exactly what you'd see, and nothing else. On a multi-user instance every user's tools run as
 themselves automatically.
 
+Paths are relative to your home, exactly as they read in the Files app — `Documents/report.pdf`.
+PDF text extraction runs in your browser via pdf.js; the server neither parses nor sees the file.
+
 *Read-only.* Writing isn't implemented. Calendar and contacts detail views are deliberately
 absent too: CalDAV means parsing iCal in the browser, and a half-working calendar tool is worse
 than no calendar tool.
+
+### 👁️ Images, if the model can see
+
+A separate per-profile switch, off by default: **"Model can see images"**. With it on, `nc_read`
+gains two more functions — load an image file, or render one page of a PDF as an image. Both hand
+actual picture data to the model, which is why they're not offered without the switch: a
+text-only model would get a megabyte of base64 it can't read, at full token price. Nothing infers
+this from the model name, because that list changes weekly and a wrong guess fails in both
+directions.
+
+One image per answer, 10 MB per file, both hard. The image travels as a `data:` URI in a
+multimodal message and stays ephemeral like every other tool round — it is never written to your
+chat history and never re-sent with the next message.
+
+Turn it on for GPT-4o, Claude, Gemini, LLaVA, Qwen-VL and the like. Leave it off for everything
+else; text files and PDF text extraction work regardless.
 
 ### 🔍 Web search needs your own SearXNG
 

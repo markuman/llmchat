@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+### Added
+- `nc_read` reaches the file service, not just Collectives: `nc_list_files` browses a directory,
+  `nc_read_text` reads markdown, plain text, csv, html or a log, and `nc_read_pdf` extracts a
+  PDF's text layer. Paths are relative to the user's home, which is what the Files app shows and
+  what a search hit hands back, so the model can go from finding a file to reading it without
+  translating anything. No new checkbox and no new approval rule — they live under the existing
+  `nc_read` id and inherit its confirmation prompt.
+- New per-profile flag **"Model can see images"**, off by default. With it on, `nc_read` also
+  offers `nc_read_image` and `nc_read_pdf_page` (one page rendered as a PNG). Both are hidden
+  entirely without the flag: handing base64 to a text-only model fills its context with data it
+  cannot read, at full token price. Deliberately not inferred from the model name — that list
+  changes weekly and a wrong guess fails in both directions. One image per answer and 10 MB per
+  file, both hard; the image rides in a multimodal message and stays ephemeral like every other
+  tool round.
+- PDF handling uses `pdfjs-dist` in the browser, loaded lazily. Not the `files_pdfviewer` app,
+  which exports no module and can be switched off by an admin, and not a PHP parser, because tool
+  calls deliberately do not grow server-side dependencies.
+
+### Changed
+- The token estimate in the status bar understands multimodal messages instead of stringifying
+  the content array.
+- Emitted assets that are neither image, style nor font now land in `js/` rather than a `dist/`
+  directory of their own — untracked by `.gitignore`, unswept by `make clean` and easy to miss
+  when deploying. The pdf.js worker was the first such asset.
+
 ## 2.1.0 – 2026-09-03
 
 ### Added

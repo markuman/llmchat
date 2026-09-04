@@ -51,6 +51,7 @@ class ProfilesController extends ApiController {
 		array $enabled_tools = [],
 		bool $tool_approval = true,
 		?int $tool_rounds = null,
+		bool $vision = false,
 		bool $is_default = false,
 	): DataResponse {
 		return $this->handle(fn () => $this->service->create($this->uid(), [
@@ -65,6 +66,7 @@ class ProfilesController extends ApiController {
 			'enabled_tools' => $enabled_tools,
 			'tool_approval' => $tool_approval,
 			'tool_rounds' => $tool_rounds,
+			'vision' => $vision,
 			'is_default' => $is_default,
 		])->jsonSerialize());
 	}
@@ -81,12 +83,14 @@ class ProfilesController extends ApiController {
 		?bool $streaming = null,
 		?bool $reasoning = null,
 		?bool $tool_approval = null,
+		?bool $vision = null,
 		?bool $is_default = null,
 	): DataResponse {
 		$data = [];
 		foreach (['name' => $name, 'connection_id' => $connection_id, 'model' => $model,
 			'streaming' => $streaming, 'reasoning' => $reasoning,
-			'tool_approval' => $tool_approval, 'is_default' => $is_default] as $key => $value) {
+			'tool_approval' => $tool_approval, 'vision' => $vision,
+			'is_default' => $is_default] as $key => $value) {
 			if ($value !== null) {
 				$data[$key] = $value;
 			}

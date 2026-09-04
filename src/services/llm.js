@@ -492,6 +492,27 @@ export function stripThink(text) {
 }
 
 /**
+ * Characters of one message. Multimodal content is an array of blocks; only
+ * the text ones are countable, an image is worth whatever the provider says
+ * it is worth and no local rule of thumb gets close.
+ *
+ * @param {object} message chat message
+ * @return {number} characters
+ */
+function contentChars(message) {
+	const content = message?.content
+
+	if (Array.isArray(content)) {
+		return content.reduce(
+			(sum, block) => sum + (block?.type === 'text' ? String(block.text ?? '').length : 0),
+			0,
+		)
+	}
+
+	return String(content ?? '').length
+}
+
+/**
  * Rough token estimate for the status bar. ~4 characters per token is close
  * enough for a hint and costs nothing; a real tokenizer is not worth 300 kB.
  *
@@ -499,7 +520,7 @@ export function stripThink(text) {
  * @return {number} estimated tokens
  */
 export function estimateTokens(messages) {
-	const chars = messages.reduce((sum, m) => sum + String(m.content ?? '').length, 0)
+	const chars = messages.reduce((sum, m) => sum + contentChars(m), 0)
 
 	return Math.ceil(chars / 4) + messages.length * 4
 }

@@ -20,8 +20,16 @@ const DEFAULT_LIMIT = 10
 /** the OCS search endpoint clamps to 25 server-side anyway */
 const MAX_SEARCH_LIMIT = 25
 const REQUEST_TIMEOUT_MS = 15000
-/** page content handed to the model; roughly 6k tokens */
-const MAX_PAGE_CHARS = 24000
+/** text handed to the model per read; roughly 6k tokens */
+export const MAX_TEXT_CHARS = 24000
+/**
+ * One image per turn, and that image has a ceiling. Base64 inflates by a third
+ * on the way out, and a 10 MB photo is already ~13 MB of request body plus
+ * whatever the provider charges for it in tokens.
+ */
+export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+/** reading a file is not a page fetch — a scan can be slow */
+const FILE_TIMEOUT_MS = 60000
 
 function headers(extra = {}) {
 	return {
@@ -239,13 +247,13 @@ export async function readPage(collectiveId, pageId) {
 	}
 
 	const raw = await response.text()
-	const truncated = raw.length > MAX_PAGE_CHARS
+	const truncated = raw.length > MAX_TEXT_CHARS
 
 	return {
 		title: page.title,
 		collective_id: collectiveId,
 		page_id: pageId,
-		content: truncated ? raw.slice(0, MAX_PAGE_CHARS) : raw,
+		content: truncated ? raw.slice(0, MAX_TEXT_CHARS) : raw,
 		truncated,
 	}
 }
@@ -274,4 +282,187 @@ export async function searchCollective(collectiveId, term) {
 	}))
 
 	return pages.length === 0 ? { pages: [], note: 'no matching pages' } : { pages }
+}
+
+/**
+ * Turns a path relative to the user's home into an absolute WebDAV url.
+ *
+ * Each segment is encoded on its own — encoding the joined path would escape
+ * the slashes and produce one bogus filename, same reasoning as in readPage().
+ *
+ * @param {string} path relative path, may be empty for the home itself
+ * @return {{url: string}|{error: string}} url or a message for the model
+ */
+function davUrl(path) {
+	const uid = getCurrentUser()?.uid
+	if (!uid) {
+		return { error: 'could not determine the current user' }
+	}
+
+	const segments = String(path ?? '')
+		.split('/')
+		.filter(Boolean)
+		// "Documents/../.ssh" would be resolved by the server, not by us
+		.filter((segment) => segment !== '.' && segment !== '..')
+		.map(encodeURIComponent)
+
+	const base = `dav/files/${encodeURIComponent(uid)}`
+
+	return {
+		url: generateRemoteUrl(segments.length ? `${base}/${segments.join('/')}` : base),
+		// what actually got requested, after dropping traversal segments
+		clean: segments.map(decodeURIComponent).join('/'),
+	}
+}
+
+const PROPFIND_BODY = '<?xml version="1.0" encoding="UTF-8"?>'
+	+ '<d:propfind xmlns:d="DAV:"><d:prop>'
+	+ '<d:displayname/><d:getcontenttype/><d:getcontentlength/><d:resourcetype/>'
+	+ '</d:prop></d:propfind>'
+
+/**
+ * Lists one directory of the user's files, by path relative to their home.
+ *
+ * Relative paths on purpose: that is what the user sees in the Files app and
+ * what nc_search hands back, so the model can go straight from a search hit to
+ * a read without translating anything.
+ *
+ * @param {string} [path] directory relative to the home, empty for the root
+ * @return {Promise<object>} entries, directories first
+ */
+export async function listFiles(path = '') {
+	const target = davUrl(path)
+	if (target.error) {
+		return target
+	}
+
+	const response = await ncFetch(target.url, {
+		method: 'PROPFIND',
+		headers: {
+			Depth: '1',
+			// this is DAV, not OCS — the OCS marker would be a lie here, but
+			// the CSRF token still has to go out (see the file comment)
+			'OCS-APIRequest': 'false',
+			Accept: 'application/xml',
+			'Content-Type': 'application/xml; charset=utf-8',
+		},
+		body: PROPFIND_BODY,
+	})
+
+	if (!response.ok) {
+		return response.status === 404
+			? { error: `no such directory: ${target.clean || '/'}` }
+			: { error: `could not list the directory (HTTP ${response.status})` }
+	}
+
+	const doc = new DOMParser().parseFromString(await response.text(), 'application/xml')
+	const prefix = new URL(target.url, window.location.origin).pathname.replace(/\/+$/, '')
+
+	const files = [...doc.getElementsByTagNameNS('DAV:', 'response')]
+		.map((entry) => {
+			const href = entry.getElementsByTagNameNS('DAV:', 'href')[0]?.textContent ?? ''
+			const isDir = entry.getElementsByTagNameNS('DAV:', 'collection').length > 0
+			const text = (tag) => entry.getElementsByTagNameNS('DAV:', tag)[0]?.textContent ?? ''
+			// href is url-encoded and absolute; make it relative to the request
+			const relative = decodeURIComponent(href.replace(/\/+$/, ''))
+				.replace(decodeURIComponent(prefix), '')
+				.replace(/^\/+/, '')
+
+			return {
+				name: text('displayname') || relative.split('/').pop() || '',
+				path: [target.clean, relative].filter(Boolean).join('/'),
+				is_dir: isDir,
+				size: isDir ? null : Number(text('getcontentlength') || 0),
+				mime: isDir ? null : (text('getcontenttype') || null),
+			}
+		})
+		// the first response is the directory itself
+		.filter((entry) => entry.path !== target.clean && entry.name !== '')
+		.sort((a, b) => (a.is_dir === b.is_dir ? a.name.localeCompare(b.name) : (a.is_dir ? -1 : 1)))
+
+	return files.length === 0
+		? { path: target.clean, files: [], note: 'this directory is empty' }
+		: { path: target.clean, files }
+}
+
+/**
+ * Reads one file as raw bytes.
+ *
+ * Deliberately without an Accept header: Nextcloud renders some types when
+ * asked nicely, and for an image or a PDF the bytes are the whole point.
+ *
+ * @param {string} path file relative to the home
+ * @return {Promise<object>} `{path, mime, size, bytes}` or `{error}`
+ */
+export async function readFile(path) {
+	const target = davUrl(path)
+	if (target.error) {
+		return target
+	}
+	if (!target.clean) {
+		return { error: 'a file path is required' }
+	}
+
+	const response = await ncFetch(target.url, { signal: AbortSignal.timeout(FILE_TIMEOUT_MS) })
+	if (!response.ok) {
+		return response.status === 404
+			? { error: `no such file: ${target.clean}` }
+			: { error: `could not read the file (HTTP ${response.status})` }
+	}
+
+	const bytes = await response.arrayBuffer()
+
+	return {
+		path: target.clean,
+		mime: (response.headers.get('content-type') ?? 'application/octet-stream').split(';')[0].trim(),
+		size: bytes.byteLength,
+		bytes,
+	}
+}
+
+/**
+ * Reads a text file and truncates it.
+ *
+ * @param {string} path file relative to the home
+ * @param {number} [maxChars] cap
+ * @return {Promise<object>} `{path, text, chars, truncated}` or `{error}`
+ */
+export async function readText(path, maxChars = MAX_TEXT_CHARS) {
+	const file = await readFile(path)
+	if (file.error) {
+		return file
+	}
+
+	// fatal: false — a stray byte in a log file should not lose the whole read
+	const raw = new TextDecoder('utf-8', { fatal: false }).decode(file.bytes)
+	const truncated = raw.length > maxChars
+
+	return {
+		path: file.path,
+		mime: file.mime,
+		text: truncated ? raw.slice(0, maxChars) : raw,
+		chars: truncated ? maxChars : raw.length,
+		truncated,
+	}
+}
+
+/**
+ * Base64 for an ArrayBuffer.
+ *
+ * Chunked because `String.fromCharCode(...bytes)` spreads every byte into an
+ * argument, and a few hundred kB of those blow the call stack.
+ *
+ * @param {ArrayBuffer} buffer bytes
+ * @return {string} base64, without a data-uri prefix
+ */
+export function arrayBufferToBase64(buffer) {
+	const bytes = new Uint8Array(buffer)
+	const chunk = 8192
+	let binary = ''
+
+	for (let i = 0; i < bytes.length; i += chunk) {
+		binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+	}
+
+	return btoa(binary)
 }

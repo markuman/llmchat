@@ -24,8 +24,10 @@ Features:
   same question with a different profile or model
 * Full-text search across your local chat history
 * Optional agent tools: web search via your own SearXNG, page fetching, clock, and read-only
-  access to your own Nextcloud (Unified Search and Collectives) — no MCP server, no extra
-  container, no app password needed
+  access to your own Nextcloud (Unified Search, Collectives, files, PDF text) — no MCP server,
+  no extra container, no app password needed
+* Vision-capable models can be shown an image or a rendered PDF page from your files, behind a
+  per-profile switch that is off by default
 * Approval dialog before any tool call that leaves the browser, on by default
 * Chat history in IndexedDB — local to the browser, by design
 * Archive chats as Markdown files into your Nextcloud files
