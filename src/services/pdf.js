@@ -64,12 +64,15 @@ async function open(buffer) {
  */
 export async function pdfToText(buffer, { maxChars = 24000 } = {}) {
 	const doc = await open(buffer)
+	// read before destroy(): the getter reaches into internal state that
+	// today survives teardown, but nothing documents that it has to
+	const numPages = doc.numPages
 	const pages = []
 	let used = 0
 	let truncated = false
 
 	try {
-		for (let number = 1; number <= doc.numPages; number++) {
+		for (let number = 1; number <= numPages; number++) {
 			const page = await doc.getPage(number)
 			const content = await page.getTextContent()
 
@@ -104,7 +107,7 @@ export async function pdfToText(buffer, { maxChars = 24000 } = {}) {
 	if (pages.length === 0) {
 		return {
 			pages: [],
-			num_pages: doc.numPages,
+			num_pages: numPages,
 			total_chars: 0,
 			truncated: false,
 			note: 'this PDF has no text layer — it is probably a scan. '
@@ -112,7 +115,7 @@ export async function pdfToText(buffer, { maxChars = 24000 } = {}) {
 		}
 	}
 
-	return { pages, num_pages: doc.numPages, total_chars: used, truncated }
+	return { pages, num_pages: numPages, total_chars: used, truncated }
 }
 
 /**

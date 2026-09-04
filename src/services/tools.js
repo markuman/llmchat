@@ -622,18 +622,14 @@ export async function executeTool(call, enabled = [], options = {}) {
 				if (!path) {
 					return fail(name, 'path missing')
 				}
-				const file = await nc.readFile(path)
+				// the transfer stops at the image limit rather than the general
+				// one, so an oversized photo costs a few chunks, not 10 MB
+				const file = await nc.readFile(path, { maxBytes: nc.MAX_IMAGE_BYTES })
 				if (file.error) {
 					return fail(name, file.error)
 				}
 				if (!file.mime.startsWith('image/')) {
 					return fail(name, `${file.path} is ${file.mime}, not an image`)
-				}
-				if (file.size > nc.MAX_IMAGE_BYTES) {
-					return fail(
-						name,
-						`${file.path} is ${(file.size / 1024 / 1024).toFixed(1)} MB — the limit is 10 MB`,
-					)
 				}
 				return {
 					// the bytes travel in `image`, not in the tool result

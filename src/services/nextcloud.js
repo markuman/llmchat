@@ -28,8 +28,92 @@ export const MAX_TEXT_CHARS = 24000
  * whatever the provider charges for it in tokens.
  */
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+/**
+ * Ceiling for anything read as bytes. The character caps only apply *after*
+ * the download, so without this a model pointing at an 800 MB scan or a huge
+ * log would have the browser pull all of it into memory — and pdf.js would
+ * then try to parse it — before a single character got truncated away.
+ */
+export const MAX_FILE_BYTES = 50 * 1024 * 1024
 /** reading a file is not a page fetch — a scan can be slow */
 const FILE_TIMEOUT_MS = 60000
+
+/**
+ * Byte count in the unit a human would use, for messages the model relays.
+ *
+ * @param {number} bytes size
+ * @return {string} e.g. "1.4 MB" or "820 KB"
+ */
+function describeBytes(bytes) {
+	return bytes >= 1024 * 1024
+		? `${(bytes / 1024 / 1024).toFixed(1)} MB`
+		: `${Math.round(bytes / 1024)} KB`
+}
+
+/**
+ * Reads a response body but gives up once it exceeds `limit`.
+ *
+ * Content-Length alone is not enough: it is absent on a chunked or compressed
+ * response, and it is the server's claim rather than a measurement. So the
+ * header is used to fail before the transfer starts, and the running total to
+ * fail during it.
+ *
+ * @param {Response} response an ok response
+ * @param {number} limit maximum bytes to accept
+ * @return {Promise<{bytes: ArrayBuffer}|{error: string}>} body or a message
+ */
+async function readCapped(response, limit) {
+	const declared = Number(response.headers.get('content-length'))
+	const tooBig = (size) => ({
+		error: `the file is ${describeBytes(size)}, over the ${describeBytes(limit)} limit — `
+			+ 'read a smaller file, or ask the user to narrow it down',
+	})
+
+	if (Number.isFinite(declared) && declared > limit) {
+		// nothing has been transferred yet beyond the headers
+		response.body?.cancel()
+
+		return tooBig(declared)
+	}
+
+	// no streaming body (older browsers, or a mocked response): fall back to
+	// buffering, which is what the caller would have done anyway
+	if (!response.body) {
+		const bytes = await response.arrayBuffer()
+
+		return bytes.byteLength > limit ? tooBig(bytes.byteLength) : { bytes }
+	}
+
+	const reader = response.body.getReader()
+	const chunks = []
+	let total = 0
+
+	for (;;) {
+		const { done, value } = await reader.read()
+		if (done) {
+			break
+		}
+
+		total += value.byteLength
+		if (total > limit) {
+			// stop the transfer instead of paying for the rest of it
+			await reader.cancel()
+
+			return tooBig(total)
+		}
+
+		chunks.push(value)
+	}
+
+	const bytes = new Uint8Array(total)
+	let offset = 0
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset)
+		offset += chunk.byteLength
+	}
+
+	return { bytes: bytes.buffer }
+}
 
 function headers(extra = {}) {
 	return {
@@ -291,7 +375,8 @@ export async function searchCollective(collectiveId, term) {
  * the slashes and produce one bogus filename, same reasoning as in readPage().
  *
  * @param {string} path relative path, may be empty for the home itself
- * @return {{url: string}|{error: string}} url or a message for the model
+ * @return {{url: string, clean: string}|{error: string}} url plus the
+ *   normalised path, or a message for the model
  */
 function davUrl(path) {
 	const uid = getCurrentUser()?.uid
@@ -299,19 +384,23 @@ function davUrl(path) {
 		return { error: 'could not determine the current user' }
 	}
 
-	const segments = String(path ?? '')
-		.split('/')
-		.filter(Boolean)
-		// "Documents/../.ssh" would be resolved by the server, not by us
-		.filter((segment) => segment !== '.' && segment !== '..')
-		.map(encodeURIComponent)
+	const segments = String(path ?? '').split('/').filter(Boolean)
+
+	// Refused rather than stripped. Dropping them would turn
+	// "Documents/../secret.txt" into "Documents/secret.txt" and hand the model
+	// a different file than it asked for, without a word about it — a wrong
+	// answer is worse than an error. Escaping the home is not the concern
+	// here: DAV resolves the path itself and stops at the user's root.
+	if (segments.some((segment) => segment === '.' || segment === '..')) {
+		return { error: 'the path must not contain "." or ".." segments — use a plain relative path' }
+	}
 
 	const base = `dav/files/${encodeURIComponent(uid)}`
+	const encoded = segments.map(encodeURIComponent)
 
 	return {
-		url: generateRemoteUrl(segments.length ? `${base}/${segments.join('/')}` : base),
-		// what actually got requested, after dropping traversal segments
-		clean: segments.map(decodeURIComponent).join('/'),
+		url: generateRemoteUrl(encoded.length ? `${base}/${encoded.join('/')}` : base),
+		clean: segments.join('/'),
 	}
 }
 
@@ -386,15 +475,17 @@ export async function listFiles(path = '') {
 }
 
 /**
- * Reads one file as raw bytes.
+ * Reads one file as raw bytes, up to `maxBytes`.
  *
  * Deliberately without an Accept header: Nextcloud renders some types when
  * asked nicely, and for an image or a PDF the bytes are the whole point.
  *
  * @param {string} path file relative to the home
+ * @param {object} [options] options
+ * @param {number} [options.maxBytes] ceiling, defaults to MAX_FILE_BYTES
  * @return {Promise<object>} `{path, mime, size, bytes}` or `{error}`
  */
-export async function readFile(path) {
+export async function readFile(path, { maxBytes = MAX_FILE_BYTES } = {}) {
 	const target = davUrl(path)
 	if (target.error) {
 		return target
@@ -410,13 +501,16 @@ export async function readFile(path) {
 			: { error: `could not read the file (HTTP ${response.status})` }
 	}
 
-	const bytes = await response.arrayBuffer()
+	const body = await readCapped(response, maxBytes)
+	if (body.error) {
+		return { error: `${target.clean}: ${body.error}` }
+	}
 
 	return {
 		path: target.clean,
 		mime: (response.headers.get('content-type') ?? 'application/octet-stream').split(';')[0].trim(),
-		size: bytes.byteLength,
-		bytes,
+		size: body.bytes.byteLength,
+		bytes: body.bytes,
 	}
 }
 
@@ -428,7 +522,14 @@ export async function readFile(path) {
  * @return {Promise<object>} `{path, text, chars, truncated}` or `{error}`
  */
 export async function readText(path, maxChars = MAX_TEXT_CHARS) {
-	const file = await readFile(path)
+	// Only maxChars characters survive, so there is no point in transferring a
+	// gigabyte of log file first. Four bytes per character covers the widest
+	// UTF-8 sequence, plus a megabyte of slack so a file that is merely a bit
+	// too long still reads and reports itself as truncated rather than
+	// failing outright.
+	const file = await readFile(path, {
+		maxBytes: Math.min(maxChars * 4 + 1024 * 1024, MAX_FILE_BYTES),
+	})
 	if (file.error) {
 		return file
 	}

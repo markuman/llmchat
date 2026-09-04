@@ -13,7 +13,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
   PDF's text layer. Paths are relative to the user's home, which is what the Files app shows and
   what a search hit hands back, so the model can go from finding a file to reading it without
   translating anything. No new checkbox and no new approval rule — they live under the existing
-  `nc_read` id and inherit its confirmation prompt.
+  `nc_read` id and inherit its confirmation prompt. Reads are capped at 50 MB, a text read at
+  what its character cap could possibly need, and an image read at the image limit — the
+  character caps only apply after the download, so without a byte ceiling a model pointing at an
+  800 MB scan would have the browser fetch all of it first. `Content-Length` fails the read
+  before the transfer starts, a running total during it, since that header is absent on a
+  chunked response and is the server's claim rather than a measurement.
+- A path containing `.` or `..` segments is refused rather than silently stripped: rewriting
+  `Documents/../secret.txt` to `Documents/secret.txt` would hand the model a different file than
+  it asked for without a word about it, and a confidently wrong answer is worse than an error.
+  Escaping the home was never the risk — DAV resolves the path itself and stops at the user root.
 - New per-profile flag **"Model can see images"**, off by default. With it on, `nc_read` also
   offers `nc_read_image` and `nc_read_pdf_page` (one page rendered as a PNG). Both are hidden
   entirely without the flag: handing base64 to a text-only model fills its context with data it

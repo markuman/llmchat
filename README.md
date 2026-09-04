@@ -219,6 +219,10 @@ themselves automatically.
 Paths are relative to your home, exactly as they read in the Files app — `Documents/report.pdf`.
 PDF text extraction runs in your browser via pdf.js; the server neither parses nor sees the file.
 
+Reads stop at 50 MB, and a text read stops at whatever its character cap could possibly need —
+the transfer is aborted mid-stream, so pointing the model at an 800 MB scan costs a kilobyte
+rather than your bandwidth and a hung tab.
+
 *Read-only.* Writing isn't implemented. Calendar and contacts detail views are deliberately
 absent too: CalDAV means parsing iCal in the browser, and a half-working calendar tool is worse
 than no calendar tool.
