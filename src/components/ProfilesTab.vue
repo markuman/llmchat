@@ -187,6 +187,13 @@
 				{{ t('llmchat', 'Date & time — answered locally by your browser') }}
 			</NcCheckboxRadioSwitch>
 
+			<!-- issue #15: the only tool whose answer comes from the user -->
+			<NcCheckboxRadioSwitch
+				:modelValue="form.enabled_tools.includes('ask_user')"
+				@update:modelValue="toggleTool('ask_user', $event)">
+				{{ t('llmchat', 'Ask you a question — the model asks instead of guessing') }}
+			</NcCheckboxRadioSwitch>
+
 			<NcCheckboxRadioSwitch
 				:modelValue="form.enabled_tools.includes('web_search')"
 				@update:modelValue="toggleTool('web_search', $event)">
@@ -393,6 +400,9 @@ export default {
 			}
 			if (tools.includes('web_search')) {
 				return `${base} ${this.t('llmchat', 'Search queries go to your SearXNG instance, not to this server.')}`
+			}
+			if (tools.includes('ask_user')) {
+				return `${base} ${this.t('llmchat', 'Questions appear in a dialog, at most five at a time. Nothing leaves your browser.')}`
 			}
 
 			return `${base} ${this.t('llmchat', 'Nothing leaves your browser with this selection.')}`

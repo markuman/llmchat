@@ -22,7 +22,7 @@ class ProfileService {
 	 * the frontend decides which definitions to send, this list makes sure
 	 * nothing unknown ever reaches the database.
 	 */
-	public const TOOL_IDS = ['datetime', 'web_search', 'web_fetch', 'nc_read'];
+	public const TOOL_IDS = ['datetime', 'ask_user', 'web_search', 'web_fetch', 'nc_read'];
 
 	public function __construct(
 		private ProfileMapper $mapper,

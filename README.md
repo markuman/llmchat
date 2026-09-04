@@ -184,6 +184,7 @@ Off by default. Enabled per profile, individually — because they cost you very
 | Tool | Runs where | Server sees | Asks first |
 |---|---|---|---|
 | 🕐 `get_current_datetime` | your browser | nothing | no |
+| 🙋 `ask_user` | your browser | nothing | it *is* the question |
 | 🔍 `web_search` | browser → your SearXNG | nothing | no |
 | 🌐 `web_fetch` | Nextcloud server | the URL | **yes** |
 | ☁️ `nc_read` | browser → this Nextcloud | nothing | **yes** |
@@ -219,6 +220,12 @@ themselves automatically.
 Paths are relative to your home, exactly as they read in the Files app — `Documents/report.pdf`.
 PDF text extraction runs in your browser via pdf.js; the server neither parses nor sees the file.
 
+You don't have to type those paths. With the Nextcloud tools on, the composer grows a paperclip
+that opens the normal Files dialog; picked files land in the prompt as plain quoted paths, which
+is exactly what the tools take as an argument. Multi-select and folders included. The alternative
+— describing the file and hoping the model finds it — costs a search, a directory listing, and
+frequently the wrong file.
+
 Reads stop at 50 MB, and a text read stops at whatever its character cap could possibly need —
 the transfer is aborted mid-stream, so pointing the model at an 800 MB scan costs a kilobyte
 rather than your bandwidth and a hung tab.
@@ -240,12 +247,39 @@ One image per answer, 10 MB per file, both hard. The image travels as a `data:` 
 multimodal message and stays ephemeral like every other tool round — it is never written to your
 chat history and never re-sent with the next message.
 
-A rendered PDF page comes out as a JPEG at 1568 px on its longer edge — the long edge rather than
-the width, so a landscape timetable keeps its resolution where the small print actually is.
+Both a rendered PDF page and a loaded image come out as a JPEG at 1568 px on the *longer* edge —
+the long edge rather than the width, so a landscape timetable keeps its resolution where the small
+print actually is. Photos get their EXIF rotation applied on the way, since a portrait phone shot
+otherwise reaches the model lying on its side. Not a token optimisation: the providers resize
+server-side anyway and bill for the result. It's that Anthropic hard-refuses anything over 5 MB
+per image, and it does so *after* the tool ran and you approved it — a tool that succeeds and then
+kills the turn is the worst possible outcome. Images already small enough are passed through
+untouched; anything that can't be shrunk and is still too big gets refused with a message the
+model can pass on, which beats losing the turn to a 400.
+
+Animations are resized like anything else. Keeping them sounds right and buys nothing — no
+provider reads past the first frame, so the rest is bytes you pay for twice and nobody looks at.
 
 Turn it on for GPT-4o, Claude, Gemini, LLaVA, Qwen-VL and the like. Leave it off for everything
 else; text files and PDF text extraction work regardless — and a scan without a text layer will
 say so, and say what to switch on.
+
+### 🙋 Letting the model ask
+
+`ask_user` is the odd one out: its answer comes from you, not from a service. A model that is
+genuinely unsure what was meant opens a dialog instead of picking an interpretation and writing
+four paragraphs against it — and, unlike ending its turn with a question, it gets the answer back
+as a tool result and keeps going in the same breath.
+
+Up to five questions per call. The cap is on the *call*, not on the dialog: coming back with a
+second round after the first is answered is far more annoying than one slightly longer form.
+Questions can offer options; there is always a text field next to them, because the model guessed
+those options and being pushed into the closest wrong one is worse than typing. Answering only
+some of them is fine. Skipping the dialog entirely tells the model to answer with what it has and
+name the assumption it made, rather than asking again.
+
+No approval prompt — confirming that a question may be asked and then answering it is the same
+click twice.
 
 ### 🔍 Web search needs your own SearXNG
 

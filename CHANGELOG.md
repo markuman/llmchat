@@ -5,6 +5,63 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+## 2.4.0 – 2026-09-04
+
+### Added
+- New tool **"Ask you a question"** (issue #15), off by default. A model that is genuinely unsure
+  what was meant can now ask instead of guessing, and gets the answer back as a tool result rather
+  than having to end its turn on a question the user then has to answer as a new message. Up to
+  five questions in one call — asking again after the first round is answered is far more annoying
+  than one longer form, so the cap is on the call, not on the dialog. Questions can carry options,
+  which the user can pick from or ignore in favour of typing; a free text field is always there,
+  because the model guessed the choices and being forced into the closest wrong one is worse than
+  typing — where the options are checkboxes the typed answer is added to what was ticked rather
+  than replacing it, since "all that apply" and "one of these" promise different things. Answering
+  only some of them is allowed: a model asking five questions has usually asked one too many.
+  Dismissing the dialog tells the model so in as many words, with an instruction not to ask again
+  but to name the assumption it went with instead. Two such calls per answer, counted across the
+  whole agent loop rather than per round — the five-question cap sits in the tool definition, so
+  without this a seven-round budget would allow asking in every one of them. Counted only when a
+  dialog actually opens, so a malformed call the model can still fix does not cost it an attempt,
+  and a call that finds the budget spent is told exactly that instead of being reported as a
+  dismissal nobody performed.
+- The composer has a file picker (issue #16). The file tools address paths relative to the home,
+  and typing one by hand is tedious enough that people instead describe the file and hope the model
+  finds it — which costs a search, a listing, and often the wrong file. Picked paths are inserted
+  as plain quoted strings rather than markdown links or attachment chips: that is exactly what
+  `nc_read_text`, `nc_read_pdf` and `nc_read_image` take as their `path` argument, so nothing has
+  to be translated back. Multi-select and directories are allowed, the picker reopens where the
+  last pick happened, and the button only appears for profiles that have the Nextcloud tools —
+  a path in the prompt is noise to a profile that cannot open it. Nextcloud permits `"` in
+  filenames, so the quote character steps aside instead of being escaped — single quotes, or a
+  markdown code fence when the name contains both kinds. Backslash-escaping would fix the parse
+  and create a worse bug: the model would have to strip the escapes again before calling a tool,
+  and one that does not asks the file service for a file that does not exist under that name.
+
+### Fixed
+- `nc_read_image` scales images down before they go out (issue #14). Until now whatever sat in
+  Nextcloud went to the model untouched, so an 8 MB phone photo became ~10.7 MB of base64 in the
+  request body — the PDF path, which has to *render* an image first, was the thriftier of the two.
+  Tokens were never the issue: Anthropic and OpenAI resize server-side anyway and bill for what
+  comes out of that. What was the issue is that Anthropic refuses anything over 5 MB per image
+  with an HTTP 400 that arrives *after* the tool ran and the user approved it, taking the whole
+  turn with it. Images now go through the same treatment as a rendered PDF page — 1568 px on the
+  longer edge, JPEG q0.85 — with EXIF orientation applied while decoding, since a portrait photo
+  otherwise reaches the model lying on its side, and transparency flattened onto white, since JPEG
+  has no alpha and undefined pixels come out black.
+- An image that is already small in both senses — at most 1568 px and under 1 MB — is passed
+  through untouched: a re-encode would only make it blurrier. Same for SVG, which is markup a
+  canvas cannot be pointed at, and for a flat graphic that happens to encode *larger* as JPEG than
+  it was as PNG. Every one of those paths goes through the same size check and refuses with a
+  message the model can relay, rather than handing back an oversized original — a passthrough that
+  skips the ceiling is the exact HTTP 400 this change exists to prevent.
+- Animated images are resized like everything else rather than passed through to preserve the
+  animation. No provider looks at more than one frame — OpenAI documents GIF support as
+  non-animated, Anthropic takes a single frame — so the remaining frames are bytes paid for and
+  never read, and an 8 MB animation refused for being over the limit is strictly worse than its
+  first frame at 200 KB. Small ones keep their animation anyway by falling into the size
+  passthrough, where it costs nothing either way.
+
 ## 2.2.2 – 2026-09-04
 
 ### Changed

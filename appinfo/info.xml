@@ -26,6 +26,8 @@ Features:
 * Optional agent tools: web search via your own SearXNG, page fetching, clock, and read-only
   access to your own Nextcloud (Unified Search, Collectives, files, PDF text) — no MCP server,
   no extra container, no app password needed
+* Models can ask you a question in a dialog instead of guessing at an ambiguous requirement
+* File picker in the composer, so a path goes into the prompt without being typed
 * Vision-capable models can be shown an image or a rendered PDF page from your files, behind a
   per-profile switch that is off by default
 * Approval dialog before any tool call that leaves the browser, on by default
@@ -36,7 +38,7 @@ Features:
 **Note:** API keys are stored encrypted on the server but are necessarily delivered to the browser,
 since that is where the request is made. Each user only ever sees their own key.
 	]]></description>
-	<version>2.2.2</version>
+	<version>2.4.0</version>
 	<!-- SPDX identifier, required for apps targeting Nextcloud 31+ -->
 	<licence>AGPL-3.0-or-later</licence>
 	<author>Markus Bergholz</author>
