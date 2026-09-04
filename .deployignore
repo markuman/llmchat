@@ -40,6 +40,8 @@ img/[0-9]-*.png
 # llmchat underneath the first one
 build/
 build-release.sh
+Makefile
+.cache/
 
 # repo noise
 # CHANGELOG.md stays: the app store parses it out of the release archive.

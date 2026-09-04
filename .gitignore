@@ -3,6 +3,8 @@
 /js
 /css
 /build
+# npm/composer caches of the containerised build, see Makefile
+/.cache
 /.php-cs-fixer.cache
 /psalm-cache
 /.stylelintcache
