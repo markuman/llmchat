@@ -20,6 +20,13 @@ import { useConfigStore } from './config.js'
 
 const DAY = 24 * 60 * 60 * 1000
 
+/**
+ * How often one answer may stop to ask (issue #15). Two, not one: the first
+ * round of answers can legitimately reveal that something else was ambiguous
+ * too. Beyond that it is an interrogation, not a clarification.
+ */
+const MAX_ASK_USER_CALLS = 2
+
 export const useChatStore = defineStore('chat', {
 	state: () => ({
 		chats: [],
@@ -38,6 +45,14 @@ export const useChatStore = defineStore('chat', {
 		 * track it.
 		 */
 		pendingApproval: null,
+		/**
+		 * Set while the agent loop waits for the user to answer an `ask_user`
+		 * call (issue #15): `{questions, resolve}`. Same shape and the same
+		 * markRaw reasoning as `pendingApproval`, but a separate slot — a
+		 * model can ask a question about a call that is itself awaiting
+		 * approval, and one field would then lose one of the two.
+		 */
+		pendingQuestions: null,
 		/**
 		 * Chat search (issue #6). `token` guards against a slow scan for an
 		 * older query overwriting the results of a newer one.
@@ -316,9 +331,10 @@ export const useChatStore = defineStore('chat', {
 		},
 
 		abort() {
-			// release a waiting approval first, otherwise the loop stays
-			// parked on a promise that nobody will ever resolve
+			// release anything waiting on the user first, otherwise the loop
+			// stays parked on a promise that nobody will ever resolve
 			this.resolveApproval(false)
+			this.resolveQuestions(null)
 			this.controller?.abort()
 			this.controller = null
 			this.generating = false
@@ -494,6 +510,7 @@ export const useChatStore = defineStore('chat', {
 				this.generating = false
 				this.controller = null
 				this.pendingApproval = null
+				this.pendingQuestions = null
 			}
 		},
 
@@ -528,6 +545,39 @@ export const useChatStore = defineStore('chat', {
 					args,
 					resolve,
 				})
+			})
+		},
+
+		/**
+		 * Resolves the pending question dialog.
+		 *
+		 * @param {object|null} answers `{questionId: string}`, or null when
+		 *   the dialog was dismissed
+		 */
+		resolveQuestions(answers) {
+			const pending = this.pendingQuestions
+			this.pendingQuestions = null
+			pending?.resolve(answers)
+		},
+
+		/**
+		 * Blocks until the user answers what the model asked (issue #15).
+		 *
+		 * Handed to the tool executor as a callback rather than called from
+		 * it: `executeTool` knows nothing about the store, and this is the
+		 * only tool whose result comes from the UI.
+		 *
+		 * @param {Array} questions normalised questions
+		 * @return {Promise<object|null>} answers by question id, null on dismiss
+		 */
+		askUser(questions) {
+			// nothing would ever resolve this: the dialog is already gone
+			if (this.controller?.signal.aborted) {
+				return Promise.resolve(null)
+			}
+
+			return new Promise((resolve) => {
+				this.pendingQuestions = markRaw({ questions, resolve })
 			})
 		},
 
@@ -568,9 +618,18 @@ export const useChatStore = defineStore('chat', {
 			const toolOptions = {
 				searxngUrl: useConfigStore().settings.searxng_url ?? '',
 				vision,
+				// ask_user is answered by the UI, so the executor gets a way
+				// back into the store instead of a service call
+				askUser: (questions) => this.askUser(questions),
 			}
 			const approvalRequired = profile.tool_approval !== false
 			let imagesSent = 0
+			// The 5-question cap lives in the tool definition, so it is five
+			// questions *per call*. A model with a seven-round budget could
+			// ask in every one of them, and a chat that interrogates you once
+			// per round has stopped being useful — so the budget is counted
+			// across the whole answer.
+			let askUserCalls = 0
 
 			// ephemeral working copy — never persisted
 			const loopMessages = [...history]
@@ -621,7 +680,15 @@ export const useChatStore = defineStore('chat', {
 					}
 
 					let outcome
-					if (await this.approveCall(call, approvalRequired)) {
+					if (call.function.name === 'ask_user' && ++askUserCalls > MAX_ASK_USER_CALLS) {
+						outcome = {
+							content: JSON.stringify({
+								error: 'you have already asked the user twice in this answer. '
+									+ 'Answer with what you have and name the assumption you made.',
+							}),
+							summary: 'skipped — too many questions in one answer',
+						}
+					} else if (await this.approveCall(call, approvalRequired)) {
 						outcome = await executeTool(call, enabledTools, toolOptions)
 					} else {
 						// the model gets a plain refusal and can carry on;

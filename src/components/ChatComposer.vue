@@ -1,6 +1,25 @@
 <template>
 	<div class="composer">
 		<div class="composer__input">
+			<!--
+				Issue #16: the file tools take a path relative to the home, and
+				typing one by hand is tedious enough that people instead
+				describe the file and hope the model finds it — which costs a
+				search, a listing and often the wrong file. Only shown when the
+				profile can actually read files; a path in the prompt is noise
+				to a profile that cannot open it.
+			-->
+			<NcButton
+				v-if="canPickFiles"
+				:aria-label="t('llmchat', 'Insert a file path')"
+				:title="t('llmchat', 'Insert a file path')"
+				:disabled="chat.generating"
+				@click="pickFiles">
+				<template #icon>
+					<Paperclip :size="20" />
+				</template>
+			</NcButton>
+
 			<textarea
 				ref="input"
 				v-model="text"
@@ -60,8 +79,10 @@
 </template>
 
 <script>
+import { getFilePickerBuilder } from '@nextcloud/dialogs'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
+import Paperclip from 'vue-material-design-icons/Paperclip.vue'
 import Send from 'vue-material-design-icons/Send.vue'
 // aliased: <Stop> collides with the reserved SVG element name
 import StopIcon from 'vue-material-design-icons/Stop.vue'
@@ -81,6 +102,7 @@ export default {
 	components: {
 		NcButton,
 		NcSelect,
+		Paperclip,
 		Send,
 		StopIcon,
 	},
@@ -97,6 +119,8 @@ export default {
 	data() {
 		return {
 			text: '',
+			/** where the file picker reopens; not persisted, one session is enough */
+			lastPickerPath: '/',
 		}
 	},
 
@@ -107,6 +131,16 @@ export default {
 
 		profileOptions() {
 			return this.config.usableProfiles.map((p) => ({ id: p.id, label: p.name }))
+		},
+
+		/**
+		 * Issue #16: only worth offering when the model can do something with
+		 * the path. Tied to `nc_read` rather than shown unconditionally —
+		 * pasting a path into a profile without file tools produces a
+		 * confident answer about a file nobody read.
+		 */
+		canPickFiles() {
+			return this.chat.activeProfile?.enabled_tools?.includes('nc_read') === true
 		},
 
 		selectedProfile: {
@@ -177,6 +211,68 @@ export default {
 
 			el.style.height = 'auto'
 			el.style.height = `${Math.min(el.scrollHeight, 320)}px`
+		},
+
+		/**
+		 * Issue #16: pick files in the Files dialog and drop their paths into
+		 * the prompt.
+		 *
+		 * Inserted as plain relative paths — no markdown link, no attachment
+		 * chip. That is exactly what `nc_read_text`, `nc_read_pdf` and
+		 * `nc_read_image` take as their `path` argument, so the model can pass
+		 * it straight through instead of translating a display form back into
+		 * one. Quoted, because a space in a filename otherwise reads as two
+		 * paths.
+		 */
+		async pickFiles() {
+			let picked
+			try {
+				const picker = getFilePickerBuilder(this.t('llmchat', 'Pick files for the model'))
+					.setMultiSelect(true)
+					// directories too: "summarise everything in here" is a
+					// reasonable ask when nc_list_files exists
+					.allowDirectories()
+					.startAt(this.lastPickerPath)
+					// the picker has no confirm button unless one is supplied
+					.addButton({
+						label: this.t('llmchat', 'Insert path'),
+						variant: 'primary',
+						callback: () => {},
+					})
+					.build()
+
+				picked = await picker.pick()
+			} catch {
+				// cancelled
+				return
+			}
+
+			// single-select still resolves to a bare string in some versions
+			const paths = (Array.isArray(picked) ? picked : [picked])
+				.filter((path) => typeof path === 'string' && path !== '')
+				// the tools address files relative to the home, the picker
+				// returns them rooted at it
+				.map((path) => path.replace(/^\/+/, ''))
+				.filter(Boolean)
+
+			if (paths.length === 0) {
+				return
+			}
+
+			// reopen where the last pick happened: files that belong to one
+			// question usually live in one folder
+			const parent = paths[0].split('/').slice(0, -1).join('/')
+			this.lastPickerPath = `/${parent}`
+
+			const insert = paths.map((path) => `"${path}"`).join(' ')
+			this.text = this.text === '' ? `${insert} ` : `${this.text.replace(/\s*$/, '')} ${insert} `
+
+			this.$nextTick(() => {
+				this.autogrow()
+				const el = this.$refs.input
+				el?.focus()
+				el?.setSelectionRange(this.text.length, this.text.length)
+			})
 		},
 	},
 }

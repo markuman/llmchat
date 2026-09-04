@@ -18,6 +18,7 @@
 // runtime: it is a string, the worker file itself is only requested when
 // pdf.js actually spawns it.
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import { blobToBase64, canvasToJpeg, JPEG_QUALITY, MAX_EDGE } from './image.js'
 
 const NO_TEXT_LAYER_VISION = 'this PDF has no text layer — it is probably a scan. '
 	+ 'Use nc_read_pdf_page to look at a page as an image.'
@@ -233,7 +234,7 @@ export async function pdfToText(buffer, { maxChars = 24000, vision = false } = {
  * @param {number} [options.quality] JPEG quality, 0..1
  * @return {Promise<object>} `{page, b64, mime, width, height}` or `{error}`
  */
-export async function pdfPageToImage(buffer, pageNumber, { maxEdge = 1568, quality = 0.85 } = {}) {
+export async function pdfPageToImage(buffer, pageNumber, { maxEdge = MAX_EDGE, quality = JPEG_QUALITY } = {}) {
 	const doc = await open(buffer)
 
 	try {
@@ -261,13 +262,7 @@ export async function pdfPageToImage(buffer, pageNumber, { maxEdge = 1568, quali
 		}).promise
 		page.cleanup()
 
-		const blob = await new Promise((resolve, reject) => {
-			canvas.toBlob(
-				(result) => (result ? resolve(result) : reject(new Error('could not encode the page as JPEG'))),
-				'image/jpeg',
-				quality,
-			)
-		})
+		const blob = await canvasToJpeg(canvas, quality)
 
 		return {
 			page: pageNumber,
@@ -280,13 +275,4 @@ export async function pdfPageToImage(buffer, pageNumber, { maxEdge = 1568, quali
 	} finally {
 		await doc.destroy()
 	}
-}
-
-function blobToBase64(blob) {
-	return new Promise((resolve, reject) => {
-		const reader = new FileReader()
-		reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '')
-		reader.onerror = () => reject(reader.error ?? new Error('could not read the rendered page'))
-		reader.readAsDataURL(blob)
-	})
 }

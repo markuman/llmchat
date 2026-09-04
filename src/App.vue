@@ -14,6 +14,7 @@
 
 		<!-- at app level: the agent loop keeps running when the chat view scrolls -->
 		<ToolApproval v-if="chat.pendingApproval" />
+		<ToolQuestions v-if="chat.pendingQuestions" />
 	</NcContent>
 </template>
 
@@ -25,6 +26,7 @@ import ChatView from './components/ChatView.vue'
 import ManagerModal from './components/ManagerModal.vue'
 import SetupHint from './components/SetupHint.vue'
 import ToolApproval from './components/ToolApproval.vue'
+import ToolQuestions from './components/ToolQuestions.vue'
 import { useChatStore } from './store/chat.js'
 import { useConfigStore } from './store/config.js'
 
@@ -39,6 +41,7 @@ export default {
 		NcContent,
 		SetupHint,
 		ToolApproval,
+		ToolQuestions,
 	},
 
 	setup() {

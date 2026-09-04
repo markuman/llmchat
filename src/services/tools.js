@@ -17,6 +17,7 @@
 // from them.
 import axios from '@nextcloud/axios'
 import { generateUrl } from '@nextcloud/router'
+import { downscaleImage, PROVIDER_MAX_BYTES } from './image.js'
 import * as nc from './nextcloud.js'
 import { pdfPageToImage, pdfToText } from './pdf.js'
 
@@ -32,7 +33,10 @@ import { pdfPageToImage, pdfToText } from './pdf.js'
  * "read" are much easier for a model to aim at than one call with a mode
  * parameter.
  */
-export const TOOL_IDS = ['datetime', 'web_search', 'web_fetch', 'nc_read']
+export const TOOL_IDS = ['datetime', 'ask_user', 'web_search', 'web_fetch', 'nc_read']
+
+/** Hard cap on how much a single `ask_user` call may ask (issue #15). */
+export const MAX_QUESTIONS = 5
 
 /**
  * Tools whose effects warrant asking the user first (spec: approval mode).
@@ -41,6 +45,10 @@ export const TOOL_IDS = ['datetime', 'web_search', 'web_fetch', 'nc_read']
  *
  * The file tools need no entry of their own: they live under `nc_read`, so
  * they inherit its approval automatically.
+ *
+ * `ask_user` is absent for a different reason than `web_search`: it already
+ * is a dialog. Confirming that a question may be asked, and then answering
+ * it, is the same click twice.
  */
 export const APPROVAL_TOOLS = ['web_fetch', 'nc_read']
 
@@ -70,6 +78,66 @@ const DEFINITIONS = {
 			description: 'Get the current local date and time of the user, including timezone. '
 				+ 'Use this whenever the answer depends on the current date or time.',
 			parameters: { type: 'object', properties: {}, required: [] },
+		},
+	}],
+	// Issue #15. The one tool whose result comes from the user rather than
+	// from a service — everything else here answers on its own.
+	ask_user: [{
+		type: 'function',
+		function: {
+			name: 'ask_user',
+			description: 'Ask the user one or more questions and wait for the answers, instead '
+				+ 'of guessing. Use this when a requirement is genuinely ambiguous and the wrong '
+				+ 'assumption would waste the whole answer. Do not use it for things you can '
+				+ 'look up, and do not use it to check in — asking costs the user their '
+				+ 'attention. At most 5 questions in one call. Offer options whenever the answer '
+				+ 'is a choice: picking is faster than typing.',
+			parameters: {
+				type: 'object',
+				properties: {
+					questions: {
+						type: 'array',
+						description: 'Up to 5 questions. Ask everything you need in one call — '
+							+ 'a second round of questions after the first is answered is far '
+							+ 'more annoying than one longer form.',
+						items: {
+							type: 'object',
+							properties: {
+								question: {
+									type: 'string',
+									description: 'The question, in the language of the conversation.',
+								},
+								header: {
+									type: 'string',
+									description: 'Very short label for the question, a few words at most.',
+								},
+								options: {
+									type: 'array',
+									description: 'Optional answer choices. The user can still type '
+										+ 'their own. Put the one you would recommend first.',
+									items: {
+										type: 'object',
+										properties: {
+											label: { type: 'string', description: 'Short choice text.' },
+											description: {
+												type: 'string',
+												description: 'One line on what this choice means.',
+											},
+										},
+										required: ['label'],
+									},
+								},
+								multiple: {
+									type: 'boolean',
+									description: 'Allow selecting more than one option. Defaults to false.',
+								},
+							},
+							required: ['question'],
+						},
+					},
+				},
+				required: ['questions'],
+			},
 		},
 	}],
 	web_search: [{
@@ -246,8 +314,8 @@ const DEFINITIONS = {
 		function: {
 			name: 'nc_read_image',
 			description: 'Load an image (jpg, png, webp, gif) from Nextcloud and look at it. '
-				+ 'The image arrives in the next message. Only one image per answer, and at '
-				+ 'most 10 MB — pick the one that matters.',
+				+ 'The image arrives in the next message, scaled down if it was large. Only '
+				+ 'one image per answer, and at most 10 MB on disk — pick the one that matters.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -451,6 +519,56 @@ async function searchWeb(query, baseUrl) {
 	return { query, results }
 }
 
+/**
+ * Cleans up what the model asked before it reaches the dialog.
+ *
+ * The model writes this JSON, so nothing about it is trustworthy: a missing
+ * `questions` array, twenty questions instead of five, an option that is a
+ * bare string rather than an object. All of that gets shaped here, once,
+ * instead of being defended against in the template.
+ *
+ * @param {Array|undefined} raw the `questions` argument as parsed
+ * @return {Array} normalised questions, at most MAX_QUESTIONS
+ */
+function normalizeQuestions(raw) {
+	const list = Array.isArray(raw) ? raw : []
+
+	return list
+		.map((entry, index) => {
+			// a model that shortcuts to an array of strings still gets a
+			// usable dialog rather than a row of empty fields
+			const source = typeof entry === 'string' ? { question: entry } : (entry ?? {})
+			const question = String(source.question ?? '').trim()
+			if (question === '') {
+				return null
+			}
+
+			const options = (Array.isArray(source.options) ? source.options : [])
+				.map((option) => {
+					const value = typeof option === 'string' ? { label: option } : (option ?? {})
+					const label = String(value.label ?? '').trim()
+
+					return label === ''
+						? null
+						: { label, description: String(value.description ?? '').trim() }
+				})
+				.filter(Boolean)
+				.slice(0, 12)
+
+			return {
+				id: `q${index}`,
+				question,
+				header: String(source.header ?? '').trim().slice(0, 60),
+				options,
+				// meaningless without options, and a multi-select of nothing
+				// renders as a dead control
+				multiple: options.length > 0 && source.multiple === true,
+			}
+		})
+		.filter(Boolean)
+		.slice(0, MAX_QUESTIONS)
+}
+
 /** Shorthand for the error shape the model gets back. */
 function fail(name, message) {
 	return { content: JSON.stringify({ error: message }), summary: `${name}: ${message}` }
@@ -515,6 +633,42 @@ export async function executeTool(call, enabled = [], options = {}) {
 				return {
 					content: JSON.stringify(result),
 					summary: result.locale_string,
+				}
+			}
+
+			case 'ask_user': {
+				const questions = normalizeQuestions(args.questions)
+				if (questions.length === 0) {
+					return fail(name, 'questions must be a non-empty array of {question, options?}')
+				}
+				if (typeof options.askUser !== 'function') {
+					return fail(name, 'this client cannot ask the user anything right now')
+				}
+
+				const answers = await options.askUser(questions)
+				if (answers === null) {
+					// dismissed, not answered. Said plainly so the model
+					// carries on with what it has instead of asking again.
+					return {
+						content: JSON.stringify({
+							cancelled: true,
+							note: 'The user dismissed the questions. Do not ask again — answer '
+								+ 'with what you have, and say which assumption you made.',
+						}),
+						summary: 'dismissed by you',
+					}
+				}
+
+				return {
+					content: JSON.stringify({
+						answers: questions.map((q) => ({
+							question: q.question,
+							answer: answers[q.id] ?? '',
+						})),
+					}),
+					summary: questions.length === 1
+						? `"${questions[0].question}" — answered`
+						: `${questions.length} questions answered`,
 				}
 			}
 
@@ -665,19 +819,30 @@ export async function executeTool(call, enabled = [], options = {}) {
 				if (!file.mime.startsWith('image/')) {
 					return fail(name, `${file.path} is ${file.mime}, not an image`)
 				}
+				// scaled here rather than left to the provider: Anthropic
+				// refuses over 5 MB with an HTTP 400 that lands after the call
+				// was approved and ran, taking the whole turn with it
+				const prepared = await downscaleImage(file.bytes, file.mime)
+				if (prepared.error) {
+					return fail(name, `${file.path}: ${prepared.error}`)
+				}
+				const kb = Math.round(prepared.size / 1024)
 				return {
 					// the bytes travel in `image`, not in the tool result
 					content: JSON.stringify({
 						path: file.path,
-						mime: file.mime,
-						size: file.size,
+						mime: prepared.mime,
+						size: prepared.size,
+						...(prepared.width ? { width: prepared.width, height: prepared.height } : {}),
+						...(prepared.resized ? { resized_from_bytes: prepared.original_size } : {}),
 						note: 'the image follows in the next message',
 					}),
-					summary: `${file.path} (${Math.round(file.size / 1024)} KB, ${file.mime})`,
+					summary: `${file.path} (${kb} KB, ${prepared.mime}`
+						+ `${prepared.resized ? ', scaled down' : ''})`,
 					image: {
-						b64: nc.arrayBufferToBase64(file.bytes),
-						mime: file.mime,
-						label: `${file.path} (${Math.round(file.size / 1024)} KB)`,
+						b64: prepared.b64,
+						mime: prepared.mime,
+						label: `${file.path} (${kb} KB)`,
 					},
 				}
 			}
@@ -696,8 +861,12 @@ export async function executeTool(call, enabled = [], options = {}) {
 				if (rendered.error) {
 					return fail(name, rendered.error)
 				}
-				if (rendered.size > nc.MAX_IMAGE_BYTES) {
-					return fail(name, 'the rendered page came out larger than 10 MB — use nc_read_pdf instead')
+				// the provider limit, not the download one: a rendered page
+				// that no API would accept is worth catching here rather than
+				// as an HTTP 400 that takes the whole turn with it
+				if (rendered.size > PROVIDER_MAX_BYTES) {
+					return fail(name, 'the rendered page came out too large for any provider to '
+						+ 'accept — use nc_read_pdf instead')
 				}
 				return {
 					content: JSON.stringify({
