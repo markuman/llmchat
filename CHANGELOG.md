@@ -30,6 +30,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
   directory of their own — untracked by `.gitignore`, unswept by `make clean` and easy to miss
   when deploying. The pdf.js worker was the first such asset.
 
+### Fixed
+- `make build` and `make lint` repair `node_modules/` when its native packages belong to another
+  platform. rollup and esbuild ship their native part per platform and npm installs only the
+  matching one, but `node_modules/` is a bind mount shared with the container — so running npm on
+  the host swaps the musl build the alpine image needs for the host's glibc one, and the next
+  containerised build dies with a `Cannot find module @rollup/rollup-<platform>` that names a
+  package nothing depends on by name. Timestamps could not catch it: the tree ends up newer than
+  the lock file and looks up to date. The check now asks rollup whether it loads.
+
 ## 2.1.0 – 2026-09-03
 
 ### Added

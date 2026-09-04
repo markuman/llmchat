@@ -84,11 +84,20 @@ streaming responses, stop button, edit-and-retry, regenerate — with any profil
 ## 🚀 Quick start
 
 ```bash
-npm ci && npm run build
+make build   # node and php run in throwaway podman containers
 
 rsync -avz --delete --exclude-from=.deployignore \
   ./ user@server:/var/www/nextcloud/apps/llmchat/
 ```
+
+`make deploy DEPLOY_TARGET=user@server:/var/www/nextcloud/apps/llmchat/` does both in one step.
+The build works unchanged on arm64 — a Raspberry Pi 5 included — because both container images
+are multi-arch and nothing here pins an architecture.
+
+Plain `npm ci && npm run build` on the host works too, but do not mix the two: rollup and esbuild
+install a native binary for one platform only, and `node_modules/` is shared with the container,
+so whichever ran last wins and the other breaks with a confusing *"Cannot find module
+@rollup/rollup-…"*. `make` detects that and reinstalls by itself; the reverse direction is on you.
 
 On the server:
 
