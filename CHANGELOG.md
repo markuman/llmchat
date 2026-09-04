@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+## 2.2.0 – 2026-09-04
+
 ### Added
 - `nc_read` reaches the file service, not just Collectives: `nc_list_files` browses a directory,
   `nc_read_text` reads markdown, plain text, csv, html or a log, and `nc_read_pdf` extracts a
