@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+## 2.2.1 – 2026-09-04
+
 ### Changed
 - `nc_read_pdf_page` renders at 1568 px on the page's *longer* edge instead of 1024 px on its
   width, and hands over a JPEG rather than a PNG. Scaling by width left a landscape page — a
