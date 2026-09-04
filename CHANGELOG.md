@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+### Changed
+- `nc_read_pdf` flags an extraction that came out suspiciously thin. A timetable has a text layer,
+  so nothing failed — it yields a few hundred words in reading order, which looks like a
+  successful call and reads like nonsense, and the model has no way to tell. Under 600 characters
+  per page the result now carries a note saying the words survived but the rows and columns did
+  not, and that layout cannot be inferred from the order. Measured over the pages that produced
+  text rather than the whole document, so a single cover page in front of thirty blank ones does
+  not count as sparse, and skipped when the character cap was hit, where a low average only
+  reports the cap.
+- With vision enabled, `nc_read_pdf` describes itself as being for letters, contracts and
+  articles, and points at `nc_read_pdf_page` for anything where position on the page carries
+  meaning. Without vision the description stays as it was, minus its reference to
+  `nc_read_pdf_page` — that function is not offered to such a profile, and naming it only sends
+  the model somewhere it cannot go.
+
 ## 2.2.1 – 2026-09-04
 
 ### Changed

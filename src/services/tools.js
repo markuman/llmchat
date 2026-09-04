@@ -220,9 +220,12 @@ const DEFINITIONS = {
 		type: 'function',
 		function: {
 			name: 'nc_read_pdf',
+			// the vision variant is substituted in toolDefinitionsFor(); this
+			// one must not name nc_read_pdf_page, which does not exist without
+			// it
 			description: 'Extract the text of a PDF stored in Nextcloud. Good for text-heavy '
-				+ 'documents; layout, tables and diagrams are lost. Returns nothing useful for '
-				+ 'a scanned document — use nc_read_pdf_page for those. May be truncated.',
+				+ 'documents; layout, tables and diagrams are lost — the words survive, where '
+				+ 'they sat does not. Returns nothing for a scanned document. May be truncated.',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -288,6 +291,22 @@ const DEFINITIONS = {
 const TOOL_ID_BY_FUNCTION = Object.fromEntries(Object.entries(DEFINITIONS).flatMap(([id, defs]) => defs.map((d) => [d.function.name, id])))
 
 /**
+ * Descriptions that only make sense when the image tools are on offer.
+ *
+ * A timetable extracts to a few hundred words in reading order, which looks
+ * like a successful call and reads like nonsense — so with vision available,
+ * say up front which documents to render instead of extract, rather than
+ * leaving the model to discover it from the result.
+ */
+const VISION_DESCRIPTIONS = {
+	nc_read_pdf: 'Extract the text of a PDF stored in Nextcloud. Only for text-heavy '
+		+ 'documents — letters, contracts, articles. For a timetable, form, table or anything '
+		+ 'where position on the page carries meaning, use nc_read_pdf_page instead: '
+		+ 'extraction keeps the words but loses rows and columns, and the result reads '
+		+ 'plausibly while saying nothing. Returns nothing at all for a scan. May be truncated.',
+}
+
+/**
  * Definitions for the tools a profile allows, in a stable order.
  *
  * @param {string[]} enabled tool ids from the profile
@@ -304,6 +323,16 @@ export function toolDefinitionsFor(enabled, { vision = false } = {}) {
 		.filter((id) => enabled.includes(id))
 		.flatMap((id) => DEFINITIONS[id])
 		.filter((definition) => vision || !VISION_TOOLS.includes(definition.function.name))
+		.map((definition) => {
+			const swap = vision ? VISION_DESCRIPTIONS[definition.function.name] : null
+
+			// copied, not mutated: DEFINITIONS is module state shared by every
+			// profile, and one vision profile must not rewrite what the next
+			// text-only one is offered
+			return swap
+				? { ...definition, function: { ...definition.function, description: swap } }
+				: definition
+		})
 }
 
 /**

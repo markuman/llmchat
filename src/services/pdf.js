@@ -32,6 +32,27 @@ const NO_TEXT_LAYER_BLIND = 'this PDF has no text layer — it is a scan or an i
 	+ 'user to enable "Model can see images" in the profile settings if their model supports it, '
 	+ 'and do not try other tools on this file.'
 
+/**
+ * Below this many characters per page the extraction is treated as suspect. A
+ * page of prose runs 1500–3000; a timetable that linearises to a few hundred
+ * words is the case this exists for, and it is the dangerous one because the
+ * call *succeeded* — the model gets plausible words in a useless order and has
+ * nothing telling it so.
+ */
+const SPARSE_CHARS_PER_PAGE = 600
+
+const SPARSE_TEXT_VISION = 'very little text per page — this is probably a table, form or '
+	+ 'otherwise layout-heavy document, and extraction keeps the words but loses where they '
+	+ 'sat. Rows and columns cannot be recovered from the order below. Do not guess: use '
+	+ 'nc_read_pdf_page on the relevant page and read the actual layout.'
+
+const SPARSE_TEXT_BLIND = 'very little text per page — this is probably a table, form or '
+	+ 'otherwise layout-heavy document, and extraction keeps the words but loses where they '
+	+ 'sat. Rows and columns cannot be recovered from the order below, so do not infer which '
+	+ 'value belongs to which heading. If the answer depends on the layout, say that it cannot '
+	+ 'be read reliably and that "Model can see images" in the profile settings would let the '
+	+ 'page be looked at directly.'
+
 let pdfjsPromise = null
 
 function pdfjs() {
@@ -175,7 +196,19 @@ export async function pdfToText(buffer, { maxChars = 24000, vision = false } = {
 		}
 	}
 
-	return { pages, num_pages: numPages, total_chars: used, truncated }
+	// Measured over the pages that produced text, not over the whole document:
+	// one cover page of prose in front of thirty blank ones is not sparse, it
+	// is a mostly empty PDF. Skipped when truncated, where a low average only
+	// says the cap was reached.
+	const sparse = !truncated && used / pages.length < SPARSE_CHARS_PER_PAGE
+
+	return {
+		pages,
+		num_pages: numPages,
+		total_chars: used,
+		truncated,
+		...(sparse ? { note: vision ? SPARSE_TEXT_VISION : SPARSE_TEXT_BLIND } : {}),
+	}
 }
 
 /**
