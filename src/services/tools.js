@@ -609,7 +609,12 @@ export async function executeTool(call, enabled = [], options = {}) {
 				if (file.error) {
 					return fail(name, file.error)
 				}
-				const parsed = await pdfToText(file.bytes, { maxChars: clampChars(args.max_chars) })
+				// vision decides how a text-less PDF gets explained: pointing
+				// at nc_read_pdf_page only helps when that tool is on offer
+				const parsed = await pdfToText(file.bytes, {
+					maxChars: clampChars(args.max_chars),
+					vision: options.vision === true,
+				})
 				return {
 					content: JSON.stringify({ path: file.path, ...parsed }),
 					summary: `${file.path} — ${parsed.num_pages} pages, `
@@ -658,7 +663,7 @@ export async function executeTool(call, enabled = [], options = {}) {
 				if (file.error) {
 					return fail(name, file.error)
 				}
-				const rendered = await pdfPageToImage(file.bytes, page, { width: 1024 })
+				const rendered = await pdfPageToImage(file.bytes, page)
 				if (rendered.error) {
 					return fail(name, rendered.error)
 				}

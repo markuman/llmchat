@@ -19,6 +19,19 @@
 // pdf.js actually spawns it.
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
+const NO_TEXT_LAYER_VISION = 'this PDF has no text layer — it is probably a scan. '
+	+ 'Use nc_read_pdf_page to look at a page as an image.'
+
+/**
+ * Without vision `nc_read_pdf_page` is not among the profile's tools at all,
+ * so pointing at it would send the model into a dead end whose only exit is
+ * another dead end. Name the switch that actually helps instead.
+ */
+const NO_TEXT_LAYER_BLIND = 'this PDF has no text layer — it is a scan or an image-only export, '
+	+ 'so its content cannot be read as text. This profile cannot see images either. Tell the '
+	+ 'user to enable "Model can see images" in the profile settings if their model supports it, '
+	+ 'and do not try other tools on this file.'
+
 let pdfjsPromise = null
 
 function pdfjs() {
@@ -52,7 +65,51 @@ async function open(buffer) {
 }
 
 /**
- * Extracts the text layer.
+ * Text carried by annotations rather than by the page itself.
+ *
+ * getTextContent() only sees the content stream, so a filled-in AcroForm and
+ * any comment or free-text annotation are invisible to it — for a form that
+ * is the difference between nothing and everything.
+ *
+ * @param {object} page pdf.js page
+ * @param {string} pageText what the text layer already yielded
+ * @return {Promise<string>} extra text, empty when there is none
+ */
+async function annotationText(page, pageText) {
+	let annotations
+	try {
+		annotations = await page.getAnnotations({ intent: 'display' })
+	} catch {
+		// a broken annotation dictionary must not lose the page's real text
+		return ''
+	}
+
+	const seen = new Set()
+
+	return annotations
+		.map((annotation) => {
+			// fieldValue is the form field, contentsObj the comment body;
+			// fieldValue can be an array for a multi-select
+			const value = annotation?.fieldValue ?? annotation?.contentsObj?.str ?? annotation?.contents
+			const text = Array.isArray(value) ? value.join(', ') : value
+
+			return typeof text === 'string' ? text.trim() : ''
+		})
+		.filter((text) => {
+			// some producers write widget values into the content stream as
+			// well — no point in handing the model the same string twice
+			if (text === '' || seen.has(text) || pageText.includes(text)) {
+				return false
+			}
+			seen.add(text)
+
+			return true
+		})
+		.join('\n')
+}
+
+/**
+ * Extracts the text layer, plus whatever the annotations carry.
  *
  * Layout, tables and anything drawn rather than written are lost — that is
  * what pdfPageToImage() is for.
@@ -60,9 +117,10 @@ async function open(buffer) {
  * @param {ArrayBuffer} buffer the file
  * @param {object} [options] options
  * @param {number} [options.maxChars] cap across all pages
+ * @param {boolean} [options.vision] the profile may show images to the model
  * @return {Promise<object>} `{pages, num_pages, total_chars, truncated}`
  */
-export async function pdfToText(buffer, { maxChars = 24000 } = {}) {
+export async function pdfToText(buffer, { maxChars = 24000, vision = false } = {}) {
 	const doc = await open(buffer)
 	// read before destroy(): the getter reaches into internal state that
 	// today survives teardown, but nothing documents that it has to
@@ -77,11 +135,14 @@ export async function pdfToText(buffer, { maxChars = 24000 } = {}) {
 			const content = await page.getTextContent()
 
 			// items carry no whitespace of their own; hasEOL marks a line end
-			const text = content.items
+			const layer = content.items
 				.map((item) => (item.str ?? '') + (item.hasEOL ? '\n' : ''))
 				.join('')
 				.replace(/[ \t]+\n/g, '\n')
 				.trim()
+
+			const extra = await annotationText(page, layer)
+			const text = [layer, extra].filter(Boolean).join('\n').trim()
 
 			page.cleanup()
 
@@ -110,8 +171,7 @@ export async function pdfToText(buffer, { maxChars = 24000 } = {}) {
 			num_pages: numPages,
 			total_chars: 0,
 			truncated: false,
-			note: 'this PDF has no text layer — it is probably a scan. '
-				+ 'Use nc_read_pdf_page to look at a page as an image.',
+			note: vision ? NO_TEXT_LAYER_VISION : NO_TEXT_LAYER_BLIND,
 		}
 	}
 
@@ -119,15 +179,28 @@ export async function pdfToText(buffer, { maxChars = 24000 } = {}) {
 }
 
 /**
- * Renders one page to a PNG.
+ * Renders one page to a JPEG.
+ *
+ * The long edge is what gets scaled, not the width: a landscape timetable
+ * scaled by width leaves its short edge — where the small print sits — at
+ * roughly two thirds of the resolution, and that is exactly the kind of
+ * document one renders instead of reading its text layer.
+ *
+ * JPEG, not PNG: this runs on the main thread, and deflating close to two
+ * megapixels is by far the most expensive step here. JPEG encodes several
+ * times faster and comes out around a tenth of the size, which matters again
+ * on the way out because base64 adds a third. On rasterised text q0.85 is
+ * indistinguishable to a vision model, and the resolution bought with it is
+ * worth far more than the artefacts cost.
  *
  * @param {ArrayBuffer} buffer the file
  * @param {number} pageNumber 1-based
  * @param {object} [options] options
- * @param {number} [options.width] target width in pixels
+ * @param {number} [options.maxEdge] target size of the longer edge, in pixels
+ * @param {number} [options.quality] JPEG quality, 0..1
  * @return {Promise<object>} `{page, b64, mime, width, height}` or `{error}`
  */
-export async function pdfPageToImage(buffer, pageNumber, { width = 1024 } = {}) {
+export async function pdfPageToImage(buffer, pageNumber, { maxEdge = 1568, quality = 0.85 } = {}) {
 	const doc = await open(buffer)
 
 	try {
@@ -137,26 +210,36 @@ export async function pdfPageToImage(buffer, pageNumber, { width = 1024 } = {}) 
 
 		const page = await doc.getPage(pageNumber)
 		const base = page.getViewport({ scale: 1 })
-		const viewport = page.getViewport({ scale: width / base.width })
+		// capped: a receipt or a label would otherwise be blown up to an
+		// absurd scale for no detail that is not already there
+		const scale = Math.min(maxEdge / Math.max(base.width, base.height), 6)
+		const viewport = page.getViewport({ scale })
 
 		const canvas = document.createElement('canvas')
 		canvas.width = Math.floor(viewport.width)
 		canvas.height = Math.floor(viewport.height)
 
-		await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
+		await page.render({
+			canvasContext: canvas.getContext('2d'),
+			viewport,
+			// pdf.js defaults to white already, but with JPEG there is no
+			// alpha channel to fall back on, so say it out loud
+			background: '#ffffff',
+		}).promise
 		page.cleanup()
 
 		const blob = await new Promise((resolve, reject) => {
 			canvas.toBlob(
-				(result) => (result ? resolve(result) : reject(new Error('could not encode the page as PNG'))),
-				'image/png',
+				(result) => (result ? resolve(result) : reject(new Error('could not encode the page as JPEG'))),
+				'image/jpeg',
+				quality,
 			)
 		})
 
 		return {
 			page: pageNumber,
 			b64: await blobToBase64(blob),
-			mime: 'image/png',
+			mime: 'image/jpeg',
 			size: blob.size,
 			width: canvas.width,
 			height: canvas.height,

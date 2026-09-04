@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+### Changed
+- `nc_read_pdf_page` renders at 1568 px on the page's *longer* edge instead of 1024 px on its
+  width, and hands over a JPEG rather than a PNG. Scaling by width left a landscape page — a
+  timetable, a spreadsheet export — at roughly two thirds of the resolution on the edge where
+  the small print sits, which is exactly the kind of document that gets rendered instead of read.
+  JPEG because the encode runs on the main thread, where deflating close to two megapixels is the
+  most expensive step by far: it encodes several times faster and comes out around a tenth of the
+  size, which counts twice over since base64 adds a third on the way out. On rasterised text q0.85
+  is indistinguishable to a vision model, and the resolution bought with it is worth far more.
+- `nc_read_pdf` also returns what the annotations carry. `getTextContent()` only sees the content
+  stream, so a filled-in form or a commented page came back empty or half — for an AcroForm that
+  is the difference between nothing and everything. Values already present in the text layer are
+  dropped rather than handed over twice.
+
+### Fixed
+- A PDF without a text layer told the model to fall back to `nc_read_pdf_page` even when the
+  profile had no vision, where that function is not offered at all — so the only exit from the
+  dead end was another dead end. Without vision the note now names the actual remedy: the
+  per-profile "Model can see images" switch.
+- File reads are capped by size, not just by characters. The character cap only ever applied after
+  the download, so `nc_read_text` or `nc_read_pdf` pointed at an 800 MB scan had the browser fetch
+  all of it and pdf.js parse it before a single character was truncated. `Content-Length` rejects
+  the read before the transfer starts and a running total rejects it during, since that header is
+  absent on a chunked response and is the server's claim rather than a measurement.
+- Path traversal is refused instead of rewritten. Dropping `.` and `..` turned
+  `Documents/../secret.txt` into `Documents/secret.txt` — a different file than the one asked for,
+  handed over without a word.
+
 ## 2.2.0 – 2026-09-04
 
 ### Added

@@ -240,8 +240,12 @@ One image per answer, 10 MB per file, both hard. The image travels as a `data:` 
 multimodal message and stays ephemeral like every other tool round — it is never written to your
 chat history and never re-sent with the next message.
 
+A rendered PDF page comes out as a JPEG at 1568 px on its longer edge — the long edge rather than
+the width, so a landscape timetable keeps its resolution where the small print actually is.
+
 Turn it on for GPT-4o, Claude, Gemini, LLaVA, Qwen-VL and the like. Leave it off for everything
-else; text files and PDF text extraction work regardless.
+else; text files and PDF text extraction work regardless — and a scan without a text layer will
+say so, and say what to switch on.
 
 ### 🔍 Web search needs your own SearXNG
 
