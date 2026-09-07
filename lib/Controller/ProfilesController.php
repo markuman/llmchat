@@ -24,9 +24,6 @@ class ProfilesController extends ApiController {
 		parent::__construct($request, $logger, $userId);
 	}
 
-	/**
-	 * @NoAdminRequired
-	 */
 	#[NoAdminRequired]
 	public function index(): DataResponse {
 		return $this->handle(fn () => array_map(
@@ -35,9 +32,6 @@ class ProfilesController extends ApiController {
 		));
 	}
 
-	/**
-	 * @NoAdminRequired
-	 */
 	#[NoAdminRequired]
 	public function create(
 		string $name,
@@ -71,9 +65,6 @@ class ProfilesController extends ApiController {
 		])->jsonSerialize());
 	}
 
-	/**
-	 * @NoAdminRequired
-	 */
 	#[NoAdminRequired]
 	public function update(
 		int $id,
@@ -116,9 +107,6 @@ class ProfilesController extends ApiController {
 		return $this->handle(fn () => $this->service->update($id, $this->uid(), $data)->jsonSerialize());
 	}
 
-	/**
-	 * @NoAdminRequired
-	 */
 	#[NoAdminRequired]
 	public function destroy(int $id): DataResponse {
 		return $this->handle(function () use ($id) {
@@ -127,17 +115,11 @@ class ProfilesController extends ApiController {
 		});
 	}
 
-	/**
-	 * @NoAdminRequired
-	 */
 	#[NoAdminRequired]
 	public function duplicate(int $id): DataResponse {
 		return $this->handle(fn () => $this->service->duplicate($id, $this->uid())->jsonSerialize());
 	}
 
-	/**
-	 * @NoAdminRequired
-	 */
 	#[NoAdminRequired]
 	public function reorder(array $ids): DataResponse {
 		return $this->handle(fn () => array_map(
@@ -146,9 +128,6 @@ class ProfilesController extends ApiController {
 		));
 	}
 
-	/**
-	 * @NoAdminRequired
-	 */
 	#[NoAdminRequired]
 	public function import(array $profiles, int $connection_id): DataResponse {
 		return $this->handle(fn () => array_map(

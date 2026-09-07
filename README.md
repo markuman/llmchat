@@ -6,9 +6,9 @@
 
 *Privacy-first by architecture · Batteries included · Bring your own LLM*
 
-[![Nextcloud 34](https://img.shields.io/badge/Nextcloud-34-0082c9)](https://nextcloud.com)
+[![Nextcloud 34–35](https://img.shields.io/badge/Nextcloud-34%E2%80%9335-0082c9)](https://nextcloud.com)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![PHP 8.2+](https://img.shields.io/badge/PHP-8.2%2B-777bb4)](https://www.php.net)
+[![PHP 8.3+](https://img.shields.io/badge/PHP-8.3%2B-777bb4)](https://www.php.net)
 
 <br>
 
@@ -118,7 +118,8 @@ Open the app → **Set up connection & profile** → point it at your backend �
 
 <br>
 
-* Nextcloud 34, PHP 8.2+
+* Nextcloud 34 or 35, PHP 8.3+ — Nextcloud 35 requires 8.3 anyway, and running
+  34 on 8.3 is entirely normal, so there is nothing to gain from keeping 8.2 in the manifest
 * Node 20+ / npm 10+ **on the build machine** — nothing is compiled on the server
 * `.deployignore` keeps `node_modules`, sources, sourcemaps and the release tooling out: 2.5 MB
   instead of 314 MB. `build-release.sh` uses the same list, so a tarball and an rsync deploy
@@ -432,6 +433,11 @@ conforming archive and checks the layout — one top level folder, `appinfo/info
 2. `git tag vX.Y.Z && git push --tags`, then attach the tarball to a GitHub release.
 3. Submit the download URL plus the signature printed by the script at
    [developer/apps/releases/new](https://apps.nextcloud.com/developer/apps/releases/new).
+
+> The `<screenshot>` URLs in `info.xml` are served from `latest`, this repository's default
+> branch — not from the tag. The store fetches them whenever it renders the app page, so anything
+> under `img/` has to exist on `latest` or the gallery shows empty tiles for a release that was
+> otherwise fine.
 
 > Keep `llmchat.key` private. Losing it means revoking the certificate, and re-registering deletes
 > every existing release.
