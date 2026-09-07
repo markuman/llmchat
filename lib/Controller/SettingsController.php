@@ -24,17 +24,11 @@ class SettingsController extends ApiController {
 		parent::__construct($request, $logger, $userId);
 	}
 
-	/**
-	 * @NoAdminRequired
-	 */
 	#[NoAdminRequired]
 	public function show(): DataResponse {
 		return $this->handle(fn () => $this->service->get($this->uid()));
 	}
 
-	/**
-	 * @NoAdminRequired
-	 */
 	#[NoAdminRequired]
 	public function update(
 		?string $archive_folder = null,

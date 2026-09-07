@@ -38,8 +38,22 @@ function safeState(key, fallback) {
 	}
 }
 
+/**
+ * Issue #19: where the settings footer sends people. Not read from info.xml's
+ * `<website>` — that is server-side data and would need a round trip to reach
+ * the browser, for a string that changes when the repository moves and not a
+ * minute sooner.
+ */
+export const APP_REPO_URL = 'https://github.com/markuman/llmchat'
+
 export const useConfigStore = defineStore('config', {
 	state: () => ({
+		/**
+		 * Installed app version, straight from the app manager (issue #19).
+		 * Empty when the initial state is missing, which is what the footer
+		 * checks before claiming a version it does not know.
+		 */
+		version: safeState('version', ''),
 		connections: safeState('connections', []),
 		profiles: safeState('profiles', []),
 		settings: safeState('settings', {

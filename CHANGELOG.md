@@ -5,6 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+## 2.5.0 – 2026-09-07
+
+### Added
+- The settings modal has a footer with the installed version and a link to the repository
+  (issue #19). The version is read from the app manager rather than compiled into the bundle: a
+  constant next to `info.xml` is a second place to forget on release day, and it would report what
+  the assets were built from instead of what is actually installed — which is exactly the wrong
+  number on a report from someone who deployed by rsync. It sits below the tab strip rather than
+  inside the general tab, because it identifies the app and not the chat settings, and a report
+  written while looking at the connections tab needs it just as much.
+
+### Changed
+- Nextcloud 35 is supported (issue #21): `max-version` moves to 35 while 34 stays in. Nothing in
+  the app had to change for it — every OCP interface it touches still exists, `IUserConfig` is the
+  current API rather than the `IConfig` methods deprecated in 33, and no removal in 35 affects it.
+- **PHP 8.3 is now the minimum, up from 8.2.** Nextcloud 35 requires it regardless, so keeping 8.2
+  in the manifest would promise something half the supported range cannot deliver. Running 34 on
+  8.3 is an ordinary combination, so this drops no installation that could otherwise have had 2.5.0
+  — the app store resolves `<php min-version>` against the server, not against Nextcloud's own
+  floor.
+- The `@NoAdminRequired` and `@NoCSRFRequired` docblock annotations are gone; the matching `#[…]`
+  attributes were already there and are what actually grants access since Nextcloud 27. Keeping
+  both meant every request logged a deprecation notice on the annotation path — harmless, and
+  noise in the debug log for no benefit, since the attributes short-circuit the check before the
+  annotation is ever read.
+- The `<screenshot>` URLs in `info.xml` point at `latest` instead of `main`, following the rename
+  of this repository's default branch. The old URLs 404, which the store does not report — it just
+  renders empty tiles in the gallery.
+
 ## 2.4.0 – 2026-09-04
 
 ### Added

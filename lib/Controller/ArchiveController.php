@@ -24,9 +24,6 @@ class ArchiveController extends ApiController {
 		parent::__construct($request, $logger, $userId);
 	}
 
-	/**
-	 * @NoAdminRequired
-	 */
 	#[NoAdminRequired]
 	public function store(
 		string $title,

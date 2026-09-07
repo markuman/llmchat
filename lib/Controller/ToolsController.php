@@ -40,9 +40,6 @@ class ToolsController extends ApiController {
 		parent::__construct($request, $logger, $userId);
 	}
 
-	/**
-	 * @NoAdminRequired
-	 */
 	#[NoAdminRequired]
 	#[UserRateLimit(limit: 30, period: 60)]
 	public function fetch(string $url): DataResponse {

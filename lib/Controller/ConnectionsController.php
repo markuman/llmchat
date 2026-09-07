@@ -28,8 +28,6 @@ class ConnectionsController extends ApiController {
 	 * Returns connections *with* the decrypted api key — the browser is where
 	 * the LLM request happens, so it needs it. Each user only ever sees their
 	 * own (spec §10).
-	 *
-	 * @NoAdminRequired
 	 */
 	#[NoAdminRequired]
 	public function index(): DataResponse {
@@ -39,9 +37,6 @@ class ConnectionsController extends ApiController {
 		));
 	}
 
-	/**
-	 * @NoAdminRequired
-	 */
 	#[NoAdminRequired]
 	public function create(
 		string $name,
@@ -57,9 +52,6 @@ class ConnectionsController extends ApiController {
 		])->jsonSerialize());
 	}
 
-	/**
-	 * @NoAdminRequired
-	 */
 	#[NoAdminRequired]
 	public function update(
 		int $id,
@@ -78,9 +70,6 @@ class ConnectionsController extends ApiController {
 		return $this->handle(fn () => $this->service->update($id, $this->uid(), $data)->jsonSerialize());
 	}
 
-	/**
-	 * @NoAdminRequired
-	 */
 	#[NoAdminRequired]
 	public function destroy(int $id): DataResponse {
 		return $this->handle(function () use ($id) {

@@ -13,7 +13,10 @@ use OCA\LlmChat\Service\ConnectionService;
 use OCA\LlmChat\Service\ProfileService;
 use OCA\LlmChat\Service\SettingsService;
 use OCA\LlmChat\Service\UrlHelper;
+use OCP\App\IAppManager;
 use OCP\AppFramework\Controller;
+use OCP\AppFramework\Http\Attribute\NoAdminRequired;
+use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\ContentSecurityPolicy;
 use OCP\AppFramework\Http\TemplateResponse;
 use OCP\AppFramework\Services\IInitialState;
@@ -24,6 +27,7 @@ class PageController extends Controller {
 	public function __construct(
 		IRequest $request,
 		private IInitialState $initialState,
+		private IAppManager $appManager,
 		private ConnectionService $connections,
 		private ProfileService $profiles,
 		private SettingsService $settings,
@@ -32,12 +36,8 @@ class PageController extends Controller {
 		parent::__construct(Application::APP_ID, $request);
 	}
 
-	/**
-	 * @NoAdminRequired
-	 * @NoCSRFRequired
-	 */
-	#[\OCP\AppFramework\Http\Attribute\NoAdminRequired]
-	#[\OCP\AppFramework\Http\Attribute\NoCSRFRequired]
+	#[NoAdminRequired]
+	#[NoCSRFRequired]
 	public function index(): TemplateResponse {
 		$userId = (string)$this->userId;
 
@@ -55,6 +55,15 @@ class PageController extends Controller {
 		);
 		$settings = $this->settings->get($userId);
 		$this->initialState->provideInitialState('settings', $settings);
+
+		// Issue #19: the installed version, read from the app manager rather
+		// than hardcoded — a constant next to info.xml is a second place to
+		// forget on release day, and it would report the version the bundle
+		// was built from instead of the one actually installed.
+		$this->initialState->provideInitialState(
+			'version',
+			$this->appManager->getAppVersion(Application::APP_ID)
+		);
 
 		Util::addScript(Application::APP_ID, Application::APP_ID . '-main');
 		Util::addStyle(Application::APP_ID, Application::APP_ID . '-style');
