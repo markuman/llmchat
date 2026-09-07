@@ -517,21 +517,27 @@ class SkillService {
 
 			| `winddir16Point` | Arrow |
 			| --- | --- |
-			| `N`, `NNW` | ↑ |
-			| `NNE`, `NE` | ↗ |
-			| `ENE`, `E` | → |
-			| `ESE`, `SE` | ↘ |
-			| `SSE`, `S` | ↓ |
-			| `SSW`, `SW` | ↙ |
-			| `WSW`, `W` | ← |
-			| `WNW`, `NW` | ↖ |
+			| `N`, `NNW` | ↓ |
+			| `NNE`, `NE` | ↙ |
+			| `ENE`, `E` | ← |
+			| `ESE`, `SE` | ↖ |
+			| `SSE`, `S` | ↑ |
+			| `SSW`, `SW` | ↗ |
+			| `WSW`, `W` | → |
+			| `WNW`, `NW` | ↘ |
 
-			**The arrow points at the direction the wind comes from**, so a northerly
-			blowing down from the north is ↑ and an easterly is →. That is the
-			convention a weather vane follows and the one `winddir16Point` names — note
-			that it is the opposite of the arrows on wttr.in's own terminal output,
-			which point where the air is heading. Pick one, and this skill picks this
-			one; do not mix them within an answer.
+			**The arrow points where the wind is blowing to**, so a northerly — coming
+			from the north, heading south — is ↓, and an easterly is ←. This is the
+			same convention wttr.in uses in its own terminal output, and it reads like
+			an arrow on a map.
+
+			Mind the half-turn: `winddir16Point` names the direction the wind comes
+			*from*, which is the opposite of what the arrow shows. `N` means a wind out
+			of the north, so it gets ↓. Take the arrow from the table rather than
+			reasoning it out each time, and never mix the two conventions inside one
+			answer. When writing prose next to the table, keep saying "from the north"
+			— that is what the data means, and it agrees with the arrow rather than
+			contradicting it.
 
 			If a `winddir16Point` is missing or is not one of the sixteen points above,
 			write the speed with no arrow rather than guessing at a heading.
@@ -546,10 +552,10 @@ class SkillService {
 			| | ☁️ | ⛅ | ☀️ | ☀️ | ⛅ | 🌦️ |
 			| 🌡️ °C | 14 | 17 | 20 | 23 | 21 | 18 |
 			| 💧 % | 0 | 0 | 10 | 10 | 20 | 45 |
-			| 💨 km/h | ↓ 9 | ↓ 12 | ↙ 15 | ← 17 | ← 14 | ↖ 11 |
+			| 💨 km/h | ↑ 9 | ↑ 12 | ↗ 15 | → 17 | → 14 | ↘ 11 |
 
-			Dry until the late afternoon; showers become likely after 21:00. The
-			southerly backs into the west during the day.
+			Dry until the late afternoon; showers become likely after 21:00. The wind
+			veers from south to north-west during the day.
 			```
 
 			MARKDOWN;
