@@ -66,6 +66,20 @@ first. On by default, off if you like living dangerously.
 </td></tr>
 <tr><td valign="top">
 
+### 📓 Skills you write yourself
+A Markdown file per task: which source to use, what to do with the answer, how to lay it out.
+Ships with a weather skill that replaces a web search with one API call — read it, change it,
+or write your own.
+
+</td><td valign="top">
+
+### 📂 Straight from Files
+"LLM Chat" in any file's menu opens a new chat with the path already in the prompt. Type the
+question, hit enter.
+
+</td></tr>
+<tr><td valign="top">
+
 ### 💾 Chats live in your browser
 IndexedDB, not the server. Searchable in place, and the ones worth keeping archive as Markdown
 into your Nextcloud files — versioning and sync for free.
@@ -189,6 +203,7 @@ Off by default. Enabled per profile, individually — because they cost you very
 | 🔍 `web_search` | browser → your SearXNG | nothing | no |
 | 🌐 `web_fetch` | Nextcloud server | the URL | **yes** |
 | ☁️ `nc_read` | browser → this Nextcloud | nothing | **yes** |
+| 📓 `skills` | browser → hosts you allowed | the skill file it reads | no — see below |
 
 With at least one enabled, the model runs a small agent loop — 3 to 7 tool rounds (a slider in
 the general settings, default 3, overridable per profile), then a final answer without tools. A
@@ -281,6 +296,48 @@ name the assumption it made, rather than asking again.
 
 No approval prompt — confirming that a question may be asked and then answering it is the same
 click twice.
+
+### 📓 Skills — teach it once instead of correcting it every time
+
+Turn skills on under **Settings → General** and you get a `Skills` folder next to your archived
+chats, with one example already in it. A skill is a Markdown file:
+
+```markdown
+---
+name: Weather forecast
+description: Current conditions and the forecast for any place, from wttr.in.
+allowed-domains: [wttr.in]
+---
+
+Call `skill_fetch` with `https://wttr.in/<location>?format=j1`.
+
+Lay the answer out as a horizontal table: time across the top, temperature and
+rain down the side. Add the condition emoji from `weatherCode`…
+```
+
+Only the `name` and `description` are sent with each request — one line per skill, so the model
+knows what is available. The body is fetched with `skill_read` when the model decides a skill
+applies. Thirty skills therefore cost thirty lines of context, not thirty documents.
+
+`allowed-domains` is what makes `skill_fetch` work: those hosts go into the page's Content
+Security Policy, and your **browser** requests them directly. Your Nextcloud never learns which
+town you asked about — same arrangement as web search. Consequences worth knowing:
+
+- **https only**, and no wildcards. `wttr.in` grants `wttr.in`, not `evil.wttr.in`.
+- A newly added or edited skill needs a **page reload** before its host can be reached, exactly
+  like a new connection.
+- **No approval prompt.** Writing a hostname into a file you own is the approval, given once
+  rather than on every question. That is a much narrower permission than `web_fetch`, which
+  accepts any URL the model can think of and therefore always asks.
+
+The example is worth reading before writing your own. It also demonstrates why `skill_fetch`
+exists at all rather than leaning on `web_fetch`: `wttr.in`'s three-day JSON runs to roughly
+27 000 characters, and `web_fetch` truncates text at 24 000 — routed through the server, the third
+day would silently go missing.
+
+A skill with no `description` is ignored rather than offered under its bare filename; the
+description is what the model picks on. The settings tab lists what it found and says so when one
+is missing.
 
 ### 🔍 Web search needs your own SearXNG
 

@@ -19,6 +19,11 @@ psalm.xml
 .php-cs-fixer.dist.php
 .php-cs-fixer.cache
 
+# psalm stubs — class definitions for analysis only. Shipping them would put a
+# second OCA\Files\Event\LoadAdditionalScriptsEvent on the server, which is
+# exactly the kind of thing that is fine until the day it is not.
+tests/
+
 # Never ship a composer/ directory: its presence switches off Nextcloud's
 # generic PSR-4 autoloader (AppManager::registerAutoloading), and without a
 # vendor/ next to it the app dies with a fatal error.

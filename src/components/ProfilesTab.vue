@@ -212,6 +212,22 @@
 				{{ t('llmchat', 'Read Nextcloud — search, files and collectives, read-only') }}
 			</NcCheckboxRadioSwitch>
 
+			<!--
+				Issue #17. Shown even with no skills yet, but disabled: a
+				checkbox that is simply absent reads as "this app has no
+				skills", which is a different thing from "you have not written
+				one".
+			-->
+			<NcCheckboxRadioSwitch
+				:modelValue="form.enabled_tools.includes('skills')"
+				:disabled="!config.hasSkills"
+				@update:modelValue="toggleTool('skills', $event)">
+				{{ t('llmchat', 'Skills — follow your own written procedures') }}
+			</NcCheckboxRadioSwitch>
+			<p v-if="!config.hasSkills" class="form__hint">
+				{{ skillsUnavailableHint }}
+			</p>
+
 			<p class="form__hint">
 				{{ toolsHint }}
 			</p>
@@ -392,6 +408,9 @@ export default {
 
 			// what matters is what ends up at the model, so name the most
 			// far-reaching consequence of the current selection
+			if (tools.includes('skills')) {
+				return `${base} ${this.t('llmchat', 'Skill descriptions are sent with every request; a skill body only when the model reads it. Your browser fetches the hosts a skill declares directly.')}`
+			}
 			if (tools.includes('nc_read')) {
 				return `${base} ${this.t('llmchat', 'Nextcloud content the model reads — pages, files, PDFs — is sent to the model. Think twice with a hosted provider.')}`
 			}
@@ -406,6 +425,13 @@ export default {
 			}
 
 			return `${base} ${this.t('llmchat', 'Nothing leaves your browser with this selection.')}`
+		},
+
+		/** Issue #17: why the checkbox above is greyed out. */
+		skillsUnavailableHint() {
+			return this.config.settings.skills_enabled
+				? this.t('llmchat', 'No skills with a description found in the skills folder.')
+				: this.t('llmchat', 'Switch skills on under General first.')
 		},
 
 		visionHint() {

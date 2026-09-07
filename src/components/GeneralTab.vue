@@ -122,15 +122,65 @@
 				{{ t('llmchat', 'Archived chats are written there as Markdown files. The local copy stays in this browser.') }}
 			</p>
 		</section>
+
+		<!-- issue #17 -->
+		<section class="tab__section">
+			<h3 class="tab__title">
+				{{ t('llmchat', 'Skills') }}
+			</h3>
+
+			<NcCheckboxRadioSwitch
+				:modelValue="config.settings.skills_enabled"
+				:disabled="skillsBusy"
+				type="switch"
+				@update:modelValue="toggleSkills">
+				{{ t('llmchat', 'Enable skills') }}
+			</NcCheckboxRadioSwitch>
+			<p class="tab__hint">
+				{{ t('llmchat', 'Skills are Markdown files with instructions for a specific task — how to answer a weather question, which API to call, what the reply should look like. The model is told which ones exist and reads the one it needs.') }}
+			</p>
+			<p class="tab__hint">
+				{{ t('llmchat', 'They live in the "{folder}" folder next to your archived chats. Switching this on creates it, together with an example skill for weather forecasts. Switching it off deletes nothing.', { folder: skillsFolder }) }}
+			</p>
+
+			<template v-if="config.settings.skills_enabled">
+				<p v-if="config.skills.length === 0" class="tab__hint">
+					{{ t('llmchat', 'No skills found yet.') }}
+				</p>
+				<ul v-else class="tab__skills">
+					<li v-for="skill in config.skills" :key="skill.id" class="tab__skill">
+						<span class="tab__skill-name">{{ skill.name }}</span>
+						<span v-if="skill.description" class="tab__skill-desc">{{ skill.description }}</span>
+						<span v-else class="tab__skill-warn">
+							{{ t('llmchat', 'No description in the front matter — the model will not be offered this skill.') }}
+						</span>
+					</li>
+				</ul>
+
+				<div class="tab__row tab__row--start">
+					<NcButton @click="refreshSkills">
+						{{ t('llmchat', 'Rescan folder') }}
+					</NcButton>
+					<NcButton @click="openSkillsFolder">
+						{{ t('llmchat', 'Open folder') }}
+					</NcButton>
+				</div>
+				<p class="tab__hint">
+					{{ t('llmchat', 'Edited a skill in Files? Rescan, then reload the page — a skill that reaches a new host needs it in the page security policy first.') }}
+				</p>
+			</template>
+		</section>
 	</div>
 </template>
 
 <script>
-import { getFilePickerBuilder, showError } from '@nextcloud/dialogs'
+import { getFilePickerBuilder, showError, showSuccess } from '@nextcloud/dialogs'
+import { generateUrl } from '@nextcloud/router'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
 import Folder from 'vue-material-design-icons/Folder.vue'
+import { SKILLS_FOLDER_NAME } from '../services/skills.js'
 import { MAX_TOOL_ROUNDS, MIN_TOOL_ROUNDS, useConfigStore } from '../store/config.js'
 
 export default {
@@ -154,10 +204,19 @@ export default {
 			toolRounds: MIN_TOOL_ROUNDS,
 			minToolRounds: MIN_TOOL_ROUNDS,
 			maxToolRounds: MAX_TOOL_ROUNDS,
+			/** guards the toggle while the folder is being created (issue #17) */
+			skillsBusy: false,
 		}
 	},
 
 	computed: {
+		/** Where the skills live, derived from the archive folder. */
+		skillsFolder() {
+			const base = (this.config.settings.archive_folder || '/LLM Chats').replace(/\/+$/, '')
+
+			return `${base}/${SKILLS_FOLDER_NAME}`
+		},
+
 		profileOptions() {
 			return this.config.sortedProfiles.map((p) => ({ id: p.id, label: p.name }))
 		},
@@ -232,6 +291,51 @@ export default {
 			}
 		},
 
+		/**
+		 * Issue #17. Switching on creates the folder and the example skill;
+		 * switching off only stops offering them.
+		 *
+		 * @param {boolean} enabled new switch state
+		 */
+		async toggleSkills(enabled) {
+			this.skillsBusy = true
+			try {
+				const result = await this.config.setSkillsEnabled(enabled)
+
+				if (result?.example_created) {
+					showSuccess(this.t('llmchat', 'Created {path} with an example skill.', {
+						path: `${result.path}/weather.md`,
+					}))
+				}
+			} catch (error) {
+				showError(error.message)
+			} finally {
+				this.skillsBusy = false
+			}
+		},
+
+		async refreshSkills() {
+			try {
+				await this.config.reloadSkills()
+				showSuccess(this.n(
+					'llmchat',
+					'%n skill found.',
+					'%n skills found.',
+					this.config.skills.length,
+				))
+			} catch (error) {
+				showError(error.message)
+			}
+		},
+
+		openSkillsFolder() {
+			window.open(
+				generateUrl('/apps/files/?dir={dir}', { dir: this.skillsFolder }),
+				'_blank',
+				'noopener,noreferrer',
+			)
+		},
+
 		async pickFolder() {
 			try {
 				const picker = getFilePickerBuilder(this.t('llmchat', 'Choose archive folder'))
@@ -294,6 +398,43 @@ export default {
 	display: flex;
 	align-items: center;
 	gap: 6px;
+}
+
+.tab__row--start {
+	justify-content: flex-start;
+	margin-top: 8px;
+}
+
+.tab__skills {
+	margin: 8px 0 0;
+	padding: 0;
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.tab__skill {
+	display: flex;
+	flex-direction: column;
+	padding: 6px 8px;
+	border-radius: var(--border-radius);
+	background-color: var(--color-background-hover);
+	font-size: 0.85em;
+}
+
+.tab__skill-name {
+	font-weight: 600;
+}
+
+.tab__skill-desc {
+	color: var(--color-text-maxcontrast);
+	line-height: 1.4;
+}
+
+.tab__skill-warn {
+	color: var(--color-warning-text, var(--color-warning));
+	line-height: 1.4;
 }
 
 .tab__input {
