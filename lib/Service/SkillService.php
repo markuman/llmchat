@@ -473,11 +473,12 @@ class SkillService {
 			- **Today / tomorrow / "right now"** → the day table: one column per
 			  three-hourly slot, rows for condition emoji, temperature (`°C`), felt
 			  temperature when it differs by 2° or more, chance of rain (`%`) and wind
-			  (`km/h`). For "right now", lead with one sentence from
-			  `current_condition` before the table.
+			  (`km/h`, with the direction arrow). For "right now", lead with one
+			  sentence from `current_condition` before the table.
 			- **The week / "the next few days"** → the week table: one column per day
 			  (`weather[]`), rows for condition emoji, max/min (`23° / 14°`), chance of
-			  rain as the day's maximum across `hourly[]`, and sunrise/sunset. Say that
+			  rain as the day's maximum across `hourly[]`, wind as the day's maximum
+			  speed with the direction that goes with it, and sunrise/sunset. Say that
 			  wttr.in provides three days when the user asked for seven — do not pad
 			  the table with days you do not have.
 
@@ -509,6 +510,32 @@ class SkillService {
 			Anything else: ✨. Add 🌡️ to the temperature row, 💧 to the rain row and
 			💨 to the wind row — one emoji per row label, not per cell.
 
+			## Wind direction
+
+			Every wind cell is an **arrow followed by the speed**: `↑ 12`. Look the
+			arrow up from `winddir16Point`, which is a compass point and not a number:
+
+			| `winddir16Point` | Arrow |
+			| --- | --- |
+			| `N`, `NNW` | ↑ |
+			| `NNE`, `NE` | ↗ |
+			| `ENE`, `E` | → |
+			| `ESE`, `SE` | ↘ |
+			| `SSE`, `S` | ↓ |
+			| `SSW`, `SW` | ↙ |
+			| `WSW`, `W` | ← |
+			| `WNW`, `NW` | ↖ |
+
+			**The arrow points at the direction the wind comes from**, so a northerly
+			blowing down from the north is ↑ and an easterly is →. That is the
+			convention a weather vane follows and the one `winddir16Point` names — note
+			that it is the opposite of the arrows on wttr.in's own terminal output,
+			which point where the air is heading. Pick one, and this skill picks this
+			one; do not mix them within an answer.
+
+			If a `winddir16Point` is missing or is not one of the sixteen points above,
+			write the speed with no arrow rather than guessing at a heading.
+
 			## Example
 
 			```markdown
@@ -519,9 +546,10 @@ class SkillService {
 			| | ☁️ | ⛅ | ☀️ | ☀️ | ⛅ | 🌦️ |
 			| 🌡️ °C | 14 | 17 | 20 | 23 | 21 | 18 |
 			| 💧 % | 0 | 0 | 10 | 10 | 20 | 45 |
-			| 💨 km/h | 9 | 12 | 15 | 17 | 14 | 11 |
+			| 💨 km/h | ↓ 9 | ↓ 12 | ↙ 15 | ← 17 | ← 14 | ↖ 11 |
 
-			Dry until the late afternoon; showers become likely after 21:00.
+			Dry until the late afternoon; showers become likely after 21:00. The
+			southerly backs into the west during the day.
 			```
 
 			MARKDOWN;

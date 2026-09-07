@@ -16,8 +16,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
   summarises whatever a content farm published this morning; with it, the answer comes from one
   request to `wttr.in`'s JSON API, laid out as a horizontal table because weather reads as a
   progression and one row per hour makes the reader scan vertically for a trend that runs sideways.
-  Switching the setting off deletes nothing — the files are the user's, and a toggle is not consent
-  to remove something they spent an evening writing.
+  Wind comes with a direction arrow — `↑ 12` — pointing at where the wind blows *from*, the way a
+  weather vane does and the way `winddir16Point` names it. That is deliberately the opposite of the
+  arrows in wttr.in's own terminal output, which point where the air is heading; both conventions
+  are in use, and a forecast that silently mixes them is worse than either. Switching the setting
+  off deletes nothing — the files are the user's, and a toggle is not consent to remove something
+  they spent an evening writing.
 
   Two halves, deliberately. Only the front matter — name and description, one line per skill — goes
   into the system prompt, so the model knows what exists; the body is fetched by `skill_read` when
