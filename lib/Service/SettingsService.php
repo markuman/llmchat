@@ -25,6 +25,9 @@ class SettingsService {
 		'default_profile_id' => null,
 		'searxng_url' => '',
 		'max_tool_rounds' => self::MIN_TOOL_ROUNDS,
+		// Issue #17. Off by default: switching it on creates a folder in the
+		// user's files, and no setting should do that behind their back.
+		'skills_enabled' => false,
 	];
 
 	public function __construct(
@@ -68,7 +71,7 @@ class SettingsService {
 
 	private function cast(string $key, string $raw): mixed {
 		return match ($key) {
-			'compact_mode', 'markdown_rendering', 'show_reasoning' => $raw === '1',
+			'compact_mode', 'markdown_rendering', 'show_reasoning', 'skills_enabled' => $raw === '1',
 			'default_profile_id' => (int)$raw,
 			'max_tool_rounds' => self::clampToolRounds((int)$raw),
 			default => $raw,
@@ -77,7 +80,7 @@ class SettingsService {
 
 	private function serialize(string $key, mixed $value): string {
 		return match ($key) {
-			'compact_mode', 'markdown_rendering', 'show_reasoning' => $value ? '1' : '0',
+			'compact_mode', 'markdown_rendering', 'show_reasoning', 'skills_enabled' => $value ? '1' : '0',
 			'archive_folder' => $this->normalizeFolder((string)$value),
 			'archive_target' => in_array($value, ['files'], true) ? $value : 'files',
 			'searxng_url' => $this->normalizeSearxngUrl((string)$value),

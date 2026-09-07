@@ -5,6 +5,97 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+## 2.6.0 – 2026-09-07
+
+### Added
+- **Skills** (issue #17), off by default. A skill is a Markdown file with YAML front matter, living
+  in a `Skills` folder next to the archived chats — the user writes down how a particular kind of
+  question should be answered, and the model follows it instead of improvising. Switching the
+  setting on creates the folder together with an example skill for weather forecasts, which is the
+  case that shows why this exists: asked for a forecast without it, a model runs a web search and
+  summarises whatever a content farm published this morning; with it, the answer comes from one
+  request to `wttr.in`'s JSON API, laid out as a horizontal table because weather reads as a
+  progression and one row per hour makes the reader scan vertically for a trend that runs sideways.
+  Wind comes with a direction arrow — `↑ 12` — pointing where the air is heading, so a northerly
+  is `↓`. Same convention as wttr.in's own terminal output, and it reads like an arrow on a map.
+  Note the half-turn it implies: `winddir16Point` names the direction the wind blows *from*, which
+  is the opposite of the arrow, so the skill carries a lookup table rather than asking the model to
+  flip a compass point in its head every time. Switching the setting off deletes nothing — the
+  files are the user's, and a toggle is not consent to remove something they spent an evening
+  writing.
+
+  Two halves, deliberately. Only the front matter — name and description, one line per skill — goes
+  into the system prompt, so the model knows what exists; the body is fetched by `skill_read` when
+  it decides a skill applies. Loading every body into every request would work for three skills and
+  quietly cost a few thousand tokens per message at thirty. A skill without a description is not
+  offered at all rather than listed by name, because the description is the thing the model chooses
+  on.
+
+  A skill may declare `allowed-domains`, and `skill_fetch` will reach exactly those hosts, over
+  https, straight from the browser — the same architecture as web search, and for the same reason:
+  a weather question should not leave a line in the server's access log naming the town. Those
+  hosts go into the page's CSP, which is what makes the request possible at all and means a newly
+  added skill needs a reload before its host can be reached, as with connections. Subdomains do not
+  inherit and wildcards are rejected: `wttr.in` does not grant `evil.wttr.in`. Neither tool asks
+  for approval — writing `allowed-domains` in a file you own *is* the approval, given once instead
+  of on every weather question, and that is a far narrower thing than `web_fetch`, which takes any
+  URL a model can invent and therefore always asks.
+
+  It also sidesteps a limit that would have made the example skill quietly wrong: `wttr.in`'s
+  three-day JSON is about 27 000 characters once whitespace is normalised, and `web_fetch` caps
+  text at 24 000. Routed through the server, the third day would simply have been missing, with
+  nothing in the answer to say so.
+- **"LLM Chat" in the Files app menu** (issue #20). The entry opens a new chat in a new tab with
+  the file's path already quoted in the prompt, ready for a question to be typed after it — the
+  same treatment the composer's own file picker gives a path, since it has to survive being read
+  back by a model and turned into a tool argument. It does not send anything: a path without a
+  question is not a request, and guessing "summarise this" would be wrong about half the time.
+  Shown for folders as well as files, because the path only goes into the prompt and a folder is a
+  perfectly good argument for `nc_list_files`. It ships as its own 1 kB bundle rather than being
+  folded into the app's: this code loads on every page of the Files app, and the main bundle is a
+  chat client that brings Vue, pinia and pdf.js with it.
+
+### Changed
+- `quotePath` moved out of the composer into `services/paths.js`, since the Files action needs
+  exactly the same quoting and a second copy would drift from the first.
+- The reload notice no longer claims a connection changed. It fires for a connection, for the
+  SearXNG URL and now for a skill's `allowed-domains` alike, so saying "a connection was added"
+  after switching skills on was simply untrue. The remedy is identical in every case, so the
+  message names the remedy and not a cause it cannot know.
+
+### Fixed
+- `package-lock.json` said `2.4.0` — it was missed in the 2.5.0 release and is now regenerated
+  along with the version bump. It also gains `@nextcloud/files`, which the Files action imports
+  directly; it was previously only present transitively via `@nextcloud/dialogs`, so `npm ci`
+  happened to work while the lock file did not actually guarantee it.
+- Listing the skills checks each file's size before reading it. The size check existed only on the
+  read path, so a large file that happened to sit in the skills folder was pulled into memory in
+  full on **every page load** just to have its front matter looked at — the listing runs while the
+  page is being rendered. Oversized files are now skipped on both paths rather than refused on one
+  of them, so the catalogue and a later read cannot disagree about which file answers for an id.
+- Two files whose names differ only in case no longer produce two entries for one skill. Ids are
+  compared case-insensitively, so `Weather.md` and `weather.md` are the same skill to the model
+  while `skill_read` answers with whichever the directory listing yields first; offering both was
+  offering a coin flip.
+- `skill_fetch` rejects a URL with an explicit port instead of letting it fail as a network error.
+  The CSP entry is `https://host`, which covers the default port and nothing else, so
+  `https://example.com:8443/…` passed the host check and was then blocked by the browser — and
+  reported as the generic "reload the page, or the host does not send CORS headers", which is
+  neither the cause nor a hint at the fix.
+- Switching skills on now switches back off when the folder cannot be created. The setting and the
+  provisioning are two calls, and if the second failed the switch stayed on next to an empty list
+  with nothing saying why.
+- The front matter terminator has to be a line of its own. Scanning for `\n---` also stopped at
+  `----` or `--- something` and left the remainder of that line at the top of the body. Extra
+  dashes and trailing whitespace are tolerated, since an editor produces those by accident.
+- A `?path=` longer than the 4000-character cap is truncated before being quoted rather than after,
+  which used to cut off the closing quote and leave the path running into whatever was typed next.
+
+### Removed
+- `SkillService::domains()`, which had no callers: `PageController` derives the CSP hosts from the
+  same listing it puts into the initial state, deliberately, so the method was a second
+  implementation waiting to disagree with the first.
+
 ## 2.5.0 – 2026-09-07
 
 ### Added

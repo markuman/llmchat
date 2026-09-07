@@ -45,4 +45,9 @@ export const api = {
 
 	getSettings: () => call(axios.get(url('/settings'))),
 	updateSettings: (payload) => call(axios.put(url('/settings'), payload)),
+
+	// issue #17
+	listSkills: () => call(axios.get(url('/skills'))),
+	readSkill: (id) => call(axios.get(url('/skills/read'), { params: { id } })),
+	provisionSkills: () => call(axios.post(url('/skills/provision'))),
 }

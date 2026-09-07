@@ -2,8 +2,14 @@
 	<div class="chat">
 		<ChatHeader v-if="chat.activeChat" />
 
+		<!--
+			Deliberately not naming the cause: a connection, the SearXNG URL
+			and a skill's allowed-domains all land here, and a message that
+			says "a connection was added" after switching skills on is simply
+			wrong. The remedy is the same in every case.
+		-->
 		<NcNoteCard v-if="config.reloadRequired" type="warning" class="chat__note">
-			{{ t('llmchat', 'A connection was added or its URL changed. The page must be reloaded before it can be used.') }}
+			{{ t('llmchat', 'A new address was configured. The page must be reloaded before it can be reached.') }}
 			<NcButton variant="primary" @click="reload">
 				{{ t('llmchat', 'Reload now') }}
 			</NcButton>

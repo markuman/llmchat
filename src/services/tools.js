@@ -17,9 +17,11 @@
 // from them.
 import axios from '@nextcloud/axios'
 import { generateUrl } from '@nextcloud/router'
+import { api } from './api.js'
 import { downscaleImage, PROVIDER_MAX_BYTES } from './image.js'
 import * as nc from './nextcloud.js'
 import { pdfPageToImage, pdfToText } from './pdf.js'
+import { checkSkillUrl, fetchForSkill } from './skills.js'
 
 /**
  * Tool ids as stored per profile. Kept in sync with ProfileService::TOOL_IDS.
@@ -33,7 +35,7 @@ import { pdfPageToImage, pdfToText } from './pdf.js'
  * "read" are much easier for a model to aim at than one call with a mode
  * parameter.
  */
-export const TOOL_IDS = ['datetime', 'ask_user', 'web_search', 'web_fetch', 'nc_read']
+export const TOOL_IDS = ['datetime', 'ask_user', 'web_search', 'web_fetch', 'nc_read', 'skills']
 
 /** Hard cap on how much a single `ask_user` call may ask (issue #15). */
 export const MAX_QUESTIONS = 5
@@ -49,6 +51,13 @@ export const MAX_QUESTIONS = 5
  * `ask_user` is absent for a different reason than `web_search`: it already
  * is a dialog. Confirming that a question may be asked, and then answering
  * it, is the same click twice.
+ *
+ * `skills` is absent for the `web_search` reason, only more so. `skill_read`
+ * opens a file the user wrote themselves, and `skill_fetch` can only reach a
+ * host that same user listed in that same file — writing `allowed-domains`
+ * *is* the approval, given once instead of on every weather question. Note
+ * how much narrower that is than `web_fetch`, which takes any URL the model
+ * can think of and therefore always asks.
  */
 export const APPROVAL_TOOLS = ['web_fetch', 'nc_read']
 
@@ -350,6 +359,50 @@ const DEFINITIONS = {
 			},
 		},
 	}],
+
+	// Issue #17. Two functions, because a skill is read and then acted on,
+	// and the acting usually means one request to an API the skill names.
+	skills: [{
+		type: 'function',
+		function: {
+			name: 'skill_read',
+			description: 'Read one of the skills listed in the system prompt. A skill is a '
+				+ 'procedure the user wrote for a specific kind of question — which source to '
+				+ 'use, what to do with the answer, how to present it. Read the skill before '
+				+ 'answering a question it covers, and then follow it: it exists because the '
+				+ 'user was not happy with the improvised version.',
+			parameters: {
+				type: 'object',
+				properties: {
+					id: {
+						type: 'string',
+						description: 'The skill id, exactly as listed in the system prompt.',
+					},
+				},
+				required: ['id'],
+			},
+		},
+	}, {
+		type: 'function',
+		function: {
+			name: 'skill_fetch',
+			description: 'Fetch a URL that a skill told you to fetch, and return the response '
+				+ 'body as text. Only https, and only hosts a skill listed in its '
+				+ 'allowed-domains — this is not a general web fetch, use web_fetch for that. '
+				+ 'Build the URL from the pattern in the skill; do not invent one.',
+			parameters: {
+				type: 'object',
+				properties: {
+					url: {
+						type: 'string',
+						description: 'The absolute https URL, built as the skill describes. '
+							+ 'URL-encode anything you substitute into it.',
+					},
+				},
+				required: ['url'],
+			},
+		},
+	}],
 }
 
 /**
@@ -593,9 +646,10 @@ function clampChars(value) {
  *
  * @param {object} call accumulated tool call {id, function: {name, arguments}}
  * @param {string[]} enabled tool ids the profile allows
- * @param {object} options runtime settings ({searxngUrl, vision, askUser}).
- *   `askUser` resolves with the answers, `null` when the user dismissed the
- *   dialog, or `false` when the caller refused to show one at all.
+ * @param {object} options runtime settings ({searxngUrl, vision, askUser,
+ *   skillDomains}). `askUser` resolves with the answers, `null` when the user
+ *   dismissed the dialog, or `false` when the caller refused to show one at
+ *   all.
  * @return {Promise<{content: string, summary: string, image?: object}>} result + short UI label
  */
 export async function executeTool(call, enabled = [], options = {}) {
@@ -899,6 +953,52 @@ export async function executeTool(call, enabled = [], options = {}) {
 						mime: rendered.mime,
 						label: `${file.path}, page ${rendered.page}`,
 					},
+				}
+			}
+
+			case 'skill_read': {
+				const id = String(args.id ?? '').trim()
+				if (!id) {
+					return fail(name, 'id missing')
+				}
+
+				const skill = await api.readSkill(id)
+
+				return {
+					content: JSON.stringify({
+						id: skill.id,
+						name: skill.name,
+						instructions: skill.body,
+					}),
+					summary: skill.name,
+				}
+			}
+
+			case 'skill_fetch': {
+				// The allowlist comes from the caller, which reads it off the
+				// skills the *page* was loaded with — the same list that put
+				// these hosts in the CSP. Deriving it from the skill body
+				// instead would let a file edited since page load name a host
+				// the browser will then refuse to reach, and the model would
+				// get a network error rather than an explanation.
+				const checked = checkSkillUrl(args.url, options.skillDomains ?? [])
+				if (checked.error) {
+					return fail(name, checked.error)
+				}
+
+				const result = await fetchForSkill(checked.url)
+				if (result.error) {
+					return fail(name, result.error)
+				}
+
+				return {
+					content: JSON.stringify({
+						url: checked.url,
+						content: result.content,
+						truncated: result.truncated,
+					}),
+					summary: `${new URL(checked.url).hostname} — ${result.content.length} chars`
+						+ `${result.truncated ? ' (truncated)' : ''}`,
 				}
 			}
 

@@ -65,16 +65,25 @@ export const useConfigStore = defineStore('config', {
 			default_profile_id: null,
 			searxng_url: '',
 			max_tool_rounds: MIN_TOOL_ROUNDS,
+			skills_enabled: false,
 		}),
 		/**
-		 * Urls known to the CSP of the *currently loaded page* — connections
-		 * plus the SearXNG instance, since the browser talks to both directly.
-		 * Anything added later needs a reload before it can be reached
-		 * (spec §7.1).
+		 * Skill metadata (issue #17): `{id, name, description, domains, path}`
+		 * each, never a body. Seeded from the initial state because the
+		 * descriptions go into the very first system prompt — a fetch here
+		 * would mean the first message of a session silently has no skills.
+		 */
+		skills: safeState('skills', []),
+		/**
+		 * Urls known to the CSP of the *currently loaded page* — connections,
+		 * the SearXNG instance and whatever hosts the skills declared, since
+		 * the browser talks to all of them directly. Anything added later
+		 * needs a reload before it can be reached (spec §7.1).
 		 */
 		cspBaseUrls: [
 			...safeState('connections', []).map((c) => c.base_url),
 			safeState('settings', {}).searxng_url,
+			...safeState('skills', []).flatMap((s) => (s.domains ?? []).map((d) => `https://${d}`)),
 		].filter(Boolean),
 		reloadRequired: false,
 	}),
@@ -129,6 +138,59 @@ export const useConfigStore = defineStore('config', {
 		usableProfiles(state) {
 			return this.sortedProfiles.filter((p) => state.connections.some((c) => c.id === p.connection_id))
 		},
+
+		/**
+		 * Skills the `skills` tool can actually offer (issue #17).
+		 *
+		 * A skill with no description is dropped rather than listed: the
+		 * description *is* the thing the model chooses on, and a bare name in
+		 * the catalogue costs tokens to say nothing.
+		 */
+		usableSkills: (state) => (
+			state.settings.skills_enabled
+				? state.skills.filter((skill) => skill.description)
+				: []
+		),
+
+		hasSkills() {
+			return this.usableSkills.length > 0
+		},
+
+		/**
+		 * The catalogue as it goes into the system prompt. One line per skill:
+		 * enough for the model to pick one, small enough to send every time.
+		 */
+		skillCatalogue() {
+			if (!this.hasSkills) {
+				return ''
+			}
+
+			const lines = this.usableSkills
+				.map((skill) => `- ${skill.id}: ${skill.name} — ${skill.description}`)
+				.join('\n')
+
+			return 'Available skills — procedures the user has written down for specific '
+				+ 'tasks. When one matches what is being asked, call `skill_read` with its '
+				+ 'id and follow it, instead of searching the web or improvising. Reading a '
+				+ 'skill is cheap; ignoring one that applies produces a worse answer.\n\n'
+				+ lines
+		},
+
+		/**
+		 * Hosts the loaded page may reach for skills. The tool checks against
+		 * this rather than trusting the skill body, so a fetch that the CSP
+		 * would block fails with an explanation instead of a bare TypeError.
+		 *
+		 * Taken from every skill, not only the usable ones: a skill with no
+		 * description is never offered but its host is in the page's CSP all
+		 * the same, and this list has to describe what the page can reach.
+		 * Empty when skills are off, so the tool cannot outlive the switch.
+		 */
+		skillDomains: (state) => (
+			state.settings.skills_enabled
+				? [...new Set(state.skills.flatMap((skill) => skill.domains ?? []))]
+				: []
+		),
 	},
 
 	actions: {
@@ -211,6 +273,54 @@ export const useConfigStore = defineStore('config', {
 			// the browser queries SearXNG directly, so a new instance url is
 			// not in the running page's CSP yet — same rule as connections
 			this.markCspStale(this.settings.searxng_url)
+		},
+
+		async reloadSkills() {
+			this.skills = await api.listSkills()
+			// a skill file added or edited since the page loaded can name a
+			// host the running page's CSP has never heard of
+			this.skills
+				.flatMap((skill) => skill.domains ?? [])
+				.forEach((domain) => this.markCspStale(`https://${domain}`))
+		},
+
+		/**
+		 * Switches skills on or off (issue #17).
+		 *
+		 * Turning them on creates the folder and the example skill; turning
+		 * them off deletes nothing. The files are the user's, and a toggle is
+		 * not consent to remove something they may have spent an evening
+		 * writing.
+		 *
+		 * @param {boolean} enabled new state
+		 * @return {Promise<object|null>} provisioning result when switched on
+		 */
+		async setSkillsEnabled(enabled) {
+			await this.saveSettings({ skills_enabled: enabled })
+
+			if (!enabled) {
+				this.skills = []
+
+				return null
+			}
+
+			try {
+				const result = await api.provisionSkills()
+				await this.reloadSkills()
+
+				return result
+			} catch (error) {
+				// The setting saved but the folder did not get created — no
+				// quota, a file in the way, a full disk. Leaving the switch on
+				// would show "enabled" next to an empty list and no reason
+				// why, so it goes back off and the caller reports the actual
+				// error. The user can fix the cause and try again, instead of
+				// wondering which of the two halves failed.
+				await this.saveSettings({ skills_enabled: false })
+				this.skills = []
+
+				throw error
+			}
 		},
 	},
 })

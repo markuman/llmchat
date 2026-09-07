@@ -8,6 +8,15 @@
 	xmlns="https://getpsalm.org/schema/config"
 	xsi:schemaLocation="https://getpsalm.org/schema/config vendor/vimeo/psalm/config.xsd"
 >
+	<!--
+		The Files app's LoadAdditionalScriptsEvent is a public extension point
+		but ships with that app rather than with OCP, so nextcloud/ocp does not
+		carry it. Stubbed instead of suppressed, so the listener stays checked
+		against a real signature.
+	-->
+	<stubs>
+		<file name="tests/stubs/files.php" preloadClasses="true"/>
+	</stubs>
 	<projectFiles>
 		<directory name="lib" />
 		<directory name="appinfo" />
@@ -37,6 +46,7 @@
 		<MissingDependency>
 			<errorLevel type="suppress">
 				<file name="lib/Service/ArchiveService.php" />
+				<file name="lib/Service/SkillService.php" />
 			</errorLevel>
 		</MissingDependency>
 	</issueHandlers>

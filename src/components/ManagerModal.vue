@@ -20,7 +20,7 @@
 			</div>
 
 			<NcNoteCard v-if="config.reloadRequired" type="warning">
-				{{ t('llmchat', 'A connection URL changed. Reload the page to activate it.') }}
+				{{ t('llmchat', 'A new address was configured. Reload the page to activate it.') }}
 				<NcButton variant="primary" @click="reload">
 					{{ t('llmchat', 'Reload now') }}
 				</NcButton>

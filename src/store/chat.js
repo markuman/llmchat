@@ -27,6 +27,25 @@ const DAY = 24 * 60 * 60 * 1000
  */
 const MAX_ASK_USER_CALLS = 2
 
+/**
+ * Appends the skill catalogue to a profile's system prompt (issue #17).
+ *
+ * After the user's own instructions, not before: a profile that says "answer
+ * only in French" should not have that softened by a paragraph about tools
+ * appearing above it. `buildPayload` sends no system message at all when the
+ * prompt is empty, so a profile without one gets the catalogue as its whole
+ * system prompt, which is exactly right.
+ *
+ * @param {string|null} systemPrompt the profile's own prompt
+ * @param {string} catalogue one line per skill
+ * @return {string} combined prompt
+ */
+function withSkillCatalogue(systemPrompt, catalogue) {
+	const own = (systemPrompt ?? '').trim()
+
+	return own === '' ? catalogue : `${own}\n\n${catalogue}`
+}
+
 export const useChatStore = defineStore('chat', {
 	state: () => ({
 		chats: [],
@@ -65,6 +84,15 @@ export const useChatStore = defineStore('chat', {
 		},
 		/** Message the search jumped to; ChatView scrolls to it and flashes it. */
 		highlightId: null,
+		/**
+		 * Text to drop into the composer of the next chat (issue #20).
+		 *
+		 * A field rather than a prop, because whoever sets it — the Files
+		 * action arriving as a URL parameter, today — is nowhere near the
+		 * composer component. The composer takes it and clears it, so it
+		 * applies exactly once.
+		 */
+		pendingPrompt: '',
 	}),
 
 	getters: {
@@ -159,19 +187,45 @@ export const useChatStore = defineStore('chat', {
 	},
 
 	actions: {
-		async init() {
+		/**
+		 * @param {object} [options] startup options
+		 * @param {string} [options.prompt] text to open a fresh chat with
+		 *   (issue #20). Anything else opens the most recent chat as usual.
+		 */
+		async init({ prompt = '' } = {}) {
 			this.loading = true
 			try {
 				this.chats = await db.listChats()
-				if (this.chats.length > 0) {
+
+				if (prompt) {
+					// A new chat, not the last one: arriving from a file is a
+					// new question, and appending it to whatever conversation
+					// happened to be open last would be a surprise — worse,
+					// a silent one, since the old messages are still context.
+					this.pendingPrompt = prompt
+					await this.newChat()
+				} else if (this.chats.length > 0) {
 					await this.openChat(this.chats[0].id)
 				}
+
 				await this.checkStorage()
 			} catch (error) {
 				this.error = error.message
 			} finally {
 				this.loading = false
 			}
+		},
+
+		/**
+		 * Hands the pending prompt to whoever asks first, once (issue #20).
+		 *
+		 * @return {string} the text, or an empty string
+		 */
+		takePendingPrompt() {
+			const prompt = this.pendingPrompt
+			this.pendingPrompt = ''
+
+			return prompt
 		},
 
 		async checkStorage() {
@@ -436,7 +490,7 @@ export const useChatStore = defineStore('chat', {
 			}
 
 			if (config.reloadRequired) {
-				this.error = t('llmchat', 'A connection was changed. Reload the page before using it.')
+				this.error = t('llmchat', 'A new address was configured. Reload the page before chatting.')
 				return
 			}
 
@@ -598,7 +652,8 @@ export const useChatStore = defineStore('chat', {
 		 * @return {Promise<{content: string, usage: object|null}>} final completion
 		 */
 		async runAgentLoop({ connection, profile, history, placeholder }) {
-			const maxRounds = useConfigStore().toolRoundsFor(profile)
+			const config = useConfigStore()
+			const maxRounds = config.toolRoundsFor(profile)
 
 			const onDelta = ({ content, reasoning }) => {
 				const target = this.messages.find((m) => m.id === placeholder.id)
@@ -614,6 +669,16 @@ export const useChatStore = defineStore('chat', {
 			// a text-only model would just fill its context with base64
 			const vision = profile.vision === true
 			const definitions = toolDefinitionsFor(enabledTools, { vision })
+
+			// Issue #17: the skill catalogue rides along with the profile's
+			// system prompt rather than being pushed into `history`, so it
+			// stays out of the persisted chat and out of the token estimate
+			// for messages the user actually wrote. Only when the profile has
+			// the tool — a model told about skills it cannot read will
+			// describe them instead of using them.
+			const effectiveProfile = enabledTools.includes('skills') && config.hasSkills
+				? { ...profile, system_prompt: withSkillCatalogue(profile.system_prompt, config.skillCatalogue) }
+				: profile
 			// web_search runs in the browser and needs the instance url
 			const approvalRequired = profile.tool_approval !== false
 			let imagesSent = 0
@@ -631,8 +696,14 @@ export const useChatStore = defineStore('chat', {
 			let askUserCalls = 0
 
 			const toolOptions = {
-				searxngUrl: useConfigStore().settings.searxng_url ?? '',
+				searxngUrl: config.settings.searxng_url ?? '',
 				vision,
+				// Issue #17: the hosts the *loaded page* may reach, which is
+				// exactly what went into its CSP. Read from the store rather
+				// than from the skill the model just read, so a skill edited
+				// since page load cannot promise a fetch the browser will
+				// then refuse.
+				skillDomains: config.skillDomains,
 				// ask_user is answered by the UI, so the executor gets a way
 				// back into the store instead of a service call
 				askUser: (questions) => {
@@ -654,7 +725,7 @@ export const useChatStore = defineStore('chat', {
 
 				result = await streamCompletion({
 					connection,
-					profile,
+					profile: effectiveProfile,
 					messages: loopMessages,
 					tools,
 					signal: this.controller.signal,

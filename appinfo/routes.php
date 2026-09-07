@@ -43,5 +43,13 @@ return [
 		// settings
 		['name' => 'settings#show', 'url' => '/api/v1/settings', 'verb' => 'GET'],
 		['name' => 'settings#update', 'url' => '/api/v1/settings', 'verb' => 'PUT'],
+
+		// skills (issue #17). A skill id is a filename without its extension,
+		// so it can hold spaces, dots and other things a path segment handles
+		// badly — hence `read?id=`, not `/skills/{id}`. That also keeps the
+		// literal `provision` from ever being read as an id.
+		['name' => 'skills#index', 'url' => '/api/v1/skills', 'verb' => 'GET'],
+		['name' => 'skills#show', 'url' => '/api/v1/skills/read', 'verb' => 'GET'],
+		['name' => 'skills#provision', 'url' => '/api/v1/skills/provision', 'verb' => 'POST'],
 	],
 ];

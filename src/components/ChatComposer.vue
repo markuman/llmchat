@@ -86,6 +86,7 @@ import Paperclip from 'vue-material-design-icons/Paperclip.vue'
 import Send from 'vue-material-design-icons/Send.vue'
 // aliased: <Stop> collides with the reserved SVG element name
 import StopIcon from 'vue-material-design-icons/Stop.vue'
+import { quotePath, relativeToHome } from '../services/paths.js'
 import { useChatStore } from '../store/chat.js'
 import { useConfigStore } from '../store/config.js'
 
@@ -95,43 +96,6 @@ import { useConfigStore } from '../store/config.js'
  * goes stale within a week.
  */
 const ROUGH_USD_PER_1K = 0.002
-
-/**
- * Wraps a picked path so a filename with spaces still reads as one path
- * (issue #16).
- *
- * Nextcloud allows `"` in filenames, so a plain `"…"` wrapper can be closed
- * by the name itself and the tail becomes prose. Backslash-escaping would
- * fix the parse and create a worse problem: the model would have to know to
- * strip the escapes again before calling a tool with the path, and one that
- * does not passes `report \"final\".pdf` to the file service, which 404s on a
- * file that exists. So the quote character steps aside instead — single
- * quotes when the name contains a double one, backticks when it contains
- * both. Whatever comes out is a path that can be copied verbatim into a tool
- * call.
- *
- * @param {string} path relative path from the picker
- * @return {string} the path, delimited
- */
-function quotePath(path) {
-	if (!path.includes('"')) {
-		return `"${path}"`
-	}
-	if (!path.includes("'")) {
-		return `'${path}'`
-	}
-
-	// A filename with both kinds of quote. Backticks read as code to the
-	// model, which is if anything clearer — and markdown's own answer to a
-	// backtick inside a code span is a longer fence, so even that case
-	// delimits without touching the path. Nothing here may rewrite it: a
-	// path the model cannot resolve is a 404 on a file that exists.
-	const longestRun = Math.max(0, ...[...path.matchAll(/`+/g)].map((m) => m[0].length))
-	const fence = '`'.repeat(longestRun + 1)
-
-	// a leading or trailing backtick in the name would fuse with the fence
-	return `${fence} ${path} ${fence}`
-}
 
 export default {
 	name: 'ChatComposer',
@@ -216,10 +180,25 @@ export default {
 	},
 
 	watch: {
+		/**
+		 * Switching chats clears the draft — except when something queued a
+		 * prompt for the chat being switched *to* (issue #20). The Files
+		 * action creates the chat and sets the text in the same breath, and
+		 * this watcher runs after both.
+		 */
 		'chat.activeId': function() {
-			this.text = ''
-			this.$nextTick(this.autogrow)
+			this.text = this.chat.takePendingPrompt()
+			this.$nextTick(this.focusEnd)
 		},
+	},
+
+	mounted() {
+		// the store may have been initialised before this component existed
+		const pending = this.chat.takePendingPrompt()
+		if (pending) {
+			this.text = pending
+			this.$nextTick(this.focusEnd)
+		}
 	},
 
 	methods: {
@@ -248,6 +227,19 @@ export default {
 
 			el.style.height = 'auto'
 			el.style.height = `${Math.min(el.scrollHeight, 320)}px`
+		},
+
+		/** Resizes and puts the caret after the text, ready to type. */
+		focusEnd() {
+			this.autogrow()
+
+			const el = this.$refs.input
+			if (!el || this.text === '') {
+				return
+			}
+
+			el.focus()
+			el.setSelectionRange(this.text.length, this.text.length)
 		},
 
 		/**
@@ -301,7 +293,7 @@ export default {
 				.filter((path) => typeof path === 'string' && path !== '')
 				// the tools address files relative to the home, the picker
 				// returns them rooted at it
-				.map((path) => path.replace(/^\/+/, ''))
+				.map(relativeToHome)
 				.filter(Boolean)
 
 			if (paths.length === 0) {
@@ -316,12 +308,7 @@ export default {
 			const insert = paths.map(quotePath).join(' ')
 			this.text = this.text === '' ? `${insert} ` : `${this.text.replace(/\s*$/, '')} ${insert} `
 
-			this.$nextTick(() => {
-				this.autogrow()
-				const el = this.$refs.input
-				el?.focus()
-				el?.setSelectionRange(this.text.length, this.text.length)
-			})
+			this.$nextTick(this.focusEnd)
 		},
 	},
 }

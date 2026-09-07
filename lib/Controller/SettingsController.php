@@ -39,6 +39,7 @@ class SettingsController extends ApiController {
 		?int $default_profile_id = null,
 		?string $searxng_url = null,
 		?int $max_tool_rounds = null,
+		?bool $skills_enabled = null,
 	): DataResponse {
 		$data = array_filter([
 			'archive_folder' => $archive_folder,
@@ -49,6 +50,7 @@ class SettingsController extends ApiController {
 			'default_profile_id' => $default_profile_id,
 			'searxng_url' => $searxng_url,
 			'max_tool_rounds' => $max_tool_rounds,
+			'skills_enabled' => $skills_enabled,
 		], static fn ($v) => $v !== null);
 
 		return $this->handle(fn () => $this->service->update($this->uid(), $data));
