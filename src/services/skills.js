@@ -51,6 +51,18 @@ export function checkSkillUrl(raw, allowed) {
 		return { error: 'only https URLs can be fetched from a skill' }
 	}
 
+	// The CSP entry is `https://host` with no port, which per the spec covers
+	// the default port and nothing else. `parsed.port` is empty for both an
+	// omitted `:443` and an explicit one, so this rejects exactly the URLs the
+	// browser would refuse anyway — and says why, instead of letting them fail
+	// later as a TypeError reported as "reload the page, or CORS".
+	if (parsed.port !== '') {
+		return {
+			error: `port ${parsed.port} is not allowed; a skill's domains are reachable `
+				+ 'on the default https port only',
+		}
+	}
+
 	const host = parsed.hostname.toLowerCase()
 	if (!allowed.includes(host)) {
 		const nothingAllowed = 'no skill declares any allowed domain, so nothing can be fetched. '

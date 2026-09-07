@@ -304,10 +304,23 @@ export const useConfigStore = defineStore('config', {
 				return null
 			}
 
-			const result = await api.provisionSkills()
-			await this.reloadSkills()
+			try {
+				const result = await api.provisionSkills()
+				await this.reloadSkills()
 
-			return result
+				return result
+			} catch (error) {
+				// The setting saved but the folder did not get created — no
+				// quota, a file in the way, a full disk. Leaving the switch on
+				// would show "enabled" next to an empty list and no reason
+				// why, so it goes back off and the caller reports the actual
+				// error. The user can fix the cause and try again, instead of
+				// wondering which of the two halves failed.
+				await this.saveSettings({ skills_enabled: false })
+				this.skills = []
+
+				throw error
+			}
 		},
 	},
 })

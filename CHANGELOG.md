@@ -68,6 +68,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
   along with the version bump. It also gains `@nextcloud/files`, which the Files action imports
   directly; it was previously only present transitively via `@nextcloud/dialogs`, so `npm ci`
   happened to work while the lock file did not actually guarantee it.
+- Listing the skills checks each file's size before reading it. The size check existed only on the
+  read path, so a large file that happened to sit in the skills folder was pulled into memory in
+  full on **every page load** just to have its front matter looked at — the listing runs while the
+  page is being rendered. Oversized files are now skipped on both paths rather than refused on one
+  of them, so the catalogue and a later read cannot disagree about which file answers for an id.
+- Two files whose names differ only in case no longer produce two entries for one skill. Ids are
+  compared case-insensitively, so `Weather.md` and `weather.md` are the same skill to the model
+  while `skill_read` answers with whichever the directory listing yields first; offering both was
+  offering a coin flip.
+- `skill_fetch` rejects a URL with an explicit port instead of letting it fail as a network error.
+  The CSP entry is `https://host`, which covers the default port and nothing else, so
+  `https://example.com:8443/…` passed the host check and was then blocked by the browser — and
+  reported as the generic "reload the page, or the host does not send CORS headers", which is
+  neither the cause nor a hint at the fix.
+- Switching skills on now switches back off when the folder cannot be created. The setting and the
+  provisioning are two calls, and if the second failed the switch stayed on next to an empty list
+  with nothing saying why.
+- The front matter terminator has to be a line of its own. Scanning for `\n---` also stopped at
+  `----` or `--- something` and left the remainder of that line at the top of the body. Extra
+  dashes and trailing whitespace are tolerated, since an editor produces those by accident.
+- A `?path=` longer than the 4000-character cap is truncated before being quoted rather than after,
+  which used to cut off the closing quote and leave the path running into whatever was typed next.
+
+### Removed
+- `SkillService::domains()`, which had no callers: `PageController` derives the CSP hosts from the
+  same listing it puts into the initial state, deliberately, so the method was a second
+  implementation waiting to disagree with the first.
 
 ## 2.5.0 – 2026-09-07
 

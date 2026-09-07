@@ -90,11 +90,38 @@ class SkillService {
 		}
 
 		$skills = [];
+		$seen = [];
+
 		foreach ($folder->getDirectoryListing() as $node) {
 			if (count($skills) >= self::MAX_SKILLS) {
 				break;
 			}
 			if (!$node instanceof File || !str_ends_with(strtolower($node->getName()), self::EXTENSION)) {
+				continue;
+			}
+
+			// Before getContent(), which reads the whole file into memory.
+			// This runs on every page load, so a 500 MB notes.md that someone
+			// parked in the folder would otherwise be loaded in full just to
+			// have its first few lines looked at.
+			if ($node->getSize() > self::MAX_FILE_BYTES) {
+				$this->logger->info('llmchat: skipping oversized skill', [
+					'name' => $node->getName(),
+					'size' => $node->getSize(),
+				]);
+				continue;
+			}
+
+			// Ids are compared case-insensitively, so Weather.md and
+			// weather.md are the same skill as far as the model is concerned
+			// — and read() answers with whichever the listing yields first.
+			// Offering both would be offering a coin flip.
+			$id = $this->idOf($node->getName());
+			if (isset($seen[$id])) {
+				$this->logger->info('llmchat: skipping duplicate skill id', [
+					'name' => $node->getName(),
+					'id' => $id,
+				]);
 				continue;
 			}
 
@@ -105,6 +132,8 @@ class SkillService {
 				$this->logger->info('llmchat: skipping unreadable skill', ['exception' => $e]);
 				continue;
 			}
+
+			$seen[$id] = true;
 
 			// The body is deliberately dropped here. It is fetched by id when
 			// the model actually asks for the skill.
@@ -146,13 +175,21 @@ class SkillService {
 			if ($this->idOf($node->getName()) !== $name) {
 				continue;
 			}
+			// Skipped rather than refused, so this walk makes the same
+			// decisions as index(): a file the catalogue passed over must not
+			// be the one that answers for that id. With `Weather.md` too
+			// large and `weather.md` fine, the model was offered the second
+			// and has to get the second.
 			if ($node->getSize() > self::MAX_FILE_BYTES) {
-				throw new BadRequestException('skill file is too large');
+				continue;
 			}
 
 			return $this->parse($node->getName(), $node->getContent());
 		}
 
+		// Also the answer when every candidate was too large: the model was
+		// never offered such a skill, so "no skill named X" is what actually
+		// happened from where it is standing.
 		throw new NotFoundException('no skill named "' . $name . '"');
 	}
 
@@ -188,25 +225,6 @@ class SkillService {
 	}
 
 	/**
-	 * Hosts the skills want to reach, for the page CSP.
-	 *
-	 * The browser fetches these directly — same architecture as SearXNG, so
-	 * the server never learns which skill was used or with what argument.
-	 *
-	 * @return list<string> bare hostnames
-	 */
-	public function domains(string $userId): array {
-		$domains = [];
-		foreach ($this->index($userId) as $skill) {
-			foreach ($skill['domains'] as $domain) {
-				$domains[$domain] = true;
-			}
-		}
-
-		return array_keys($domains);
-	}
-
-	/**
 	 * Splits `--- yaml --- body`.
 	 *
 	 * A hand-rolled reader for the four scalar keys that matter, rather than a
@@ -222,13 +240,16 @@ class SkillService {
 		$meta = [];
 		$body = $content;
 
-		if (str_starts_with($content, "---\n")) {
-			$end = strpos($content, "\n---", 3);
-			if ($end !== false) {
-				$meta = $this->parseFrontMatter(substr($content, 4, $end - 3));
-				// past the closing marker and its newline
-				$body = ltrim(substr($content, $end + 4), "\n");
-			}
+		// The closing marker is a line of its own: three or more dashes and
+		// then nothing but whitespace. Searching for the string "\n---" alone
+		// would also stop at "----" and at "--- something", and hand whatever
+		// followed on that line to the body as a stray "-" or " something".
+		// Extra dashes and trailing spaces are tolerated because a text editor
+		// produces them by accident; a marker with words after it is not an
+		// accident and is left to be body text.
+		if (preg_match('/^---\n(.*?)\n-{3,}[ \t]*(?:\n|$)/s', $content, $matches) === 1) {
+			$meta = $this->parseFrontMatter($matches[1]);
+			$body = ltrim(substr($content, strlen($matches[0])), "\n");
 		}
 
 		$id = $this->idOf($filename);

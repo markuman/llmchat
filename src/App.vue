@@ -55,9 +55,13 @@ function initialPrompt() {
 		return ''
 	}
 
-	const path = relativeToHome(params.get('path') ?? '').trim()
+	// Truncated before quoting, not after: cutting the result would drop the
+	// closing quote and leave the model with a path that runs into whatever
+	// the user types next. Nothing legitimate comes near the limit — but a
+	// path is the one input here whose delimiters carry meaning.
+	const path = relativeToHome(params.get('path') ?? '').trim().slice(0, MAX_PROMPT_CHARS)
 	const raw = path === ''
-		? (params.get('prompt') ?? '').trim()
+		? (params.get('prompt') ?? '').trim().slice(0, MAX_PROMPT_CHARS)
 		: `${quotePath(path)} `
 
 	if (raw === '') {
@@ -77,7 +81,7 @@ function initialPrompt() {
 		// a browser that refuses replaceState still gets the prompt
 	}
 
-	return raw.slice(0, MAX_PROMPT_CHARS)
+	return raw
 }
 
 export default {
