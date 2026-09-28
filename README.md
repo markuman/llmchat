@@ -439,7 +439,10 @@ inherent to tool use, not something this app can engineer away.
 > That's the deliberate consequence of not storing conversations server-side — and exactly why
 > the archive button exists. Archive what you want to keep.
 
-Archives land in `{folder}/{YYYY}/{YYYY-MM-DD}-{slug}.md` with YAML front matter.
+Archives land in `{folder}/{YYYY}/{YYYY-MM-DD}-{slug}.md` and contain the conversation and
+nothing else: your messages as plain text, the answers quoted twice (`> > …`), a `---` at every
+change of speaker. No front matter, no profile, model or system prompt — title and date are in the file
+name, and the file is for reading the chat back, not for reproducing the setup.
 
 ---
 

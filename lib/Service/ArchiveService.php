@@ -52,7 +52,10 @@ class ArchiveService {
 			trim($settings['archive_folder'], '/') . '/' . $created->format('Y')
 		);
 
-		$content = $this->frontMatter($title, $created, $data) . "\n" . rtrim($body) . "\n";
+		// no front matter: Nextcloud Text shows it as a grey block of YAML
+		// above the first question, and title and date are already in the
+		// file name and the folder
+		$content = rtrim($body) . "\n";
 		$filename = $this->uniqueName(
 			$targetDir,
 			$created->format('Y-m-d') . '-' . $this->slug($title)
@@ -65,47 +68,6 @@ class ArchiveService {
 			'name' => $file->getName(),
 			'file_id' => $file->getId(),
 		];
-	}
-
-	private function frontMatter(string $title, \DateTimeImmutable $created, array $data): string {
-		$lines = ['---'];
-		$lines[] = 'title: ' . $this->yamlScalar($title);
-		$lines[] = 'date: ' . $created->format(\DateTimeInterface::ATOM);
-
-		$profile = trim((string)($data['profile'] ?? ''));
-		if ($profile !== '') {
-			$lines[] = 'profile: ' . $this->yamlScalar($profile);
-		}
-
-		$model = trim((string)($data['model'] ?? ''));
-		if ($model !== '') {
-			$lines[] = 'model: ' . $this->yamlScalar($model);
-		}
-
-		$systemPrompt = (string)($data['system_prompt'] ?? '');
-		if (trim($systemPrompt) !== '') {
-			$lines[] = 'system_prompt: |';
-			foreach (preg_split('/\r\n|\r|\n/', rtrim($systemPrompt)) as $line) {
-				$lines[] = '  ' . $line;
-			}
-		}
-
-		$lines[] = '---';
-
-		return implode("\n", $lines) . "\n";
-	}
-
-	/**
-	 * Quotes only when the value could be misread as YAML structure.
-	 */
-	private function yamlScalar(string $value): string {
-		$value = str_replace(["\r", "\n"], ' ', $value);
-
-		if (preg_match('/^[^\s\-?:,\[\]{}#&*!|>\'"%@`][^:#]*$/u', $value) === 1) {
-			return $value;
-		}
-
-		return '"' . str_replace(['\\', '"'], ['\\\\', '\"'], $value) . '"';
 	}
 
 	private function parseDate(string $raw): \DateTimeImmutable {

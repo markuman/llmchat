@@ -93,6 +93,68 @@ const MCP_UNUSABLE_STATES = {
 	needs_client_id: 'needs a client id',
 }
 
+/**
+ * A message as a Markdown blockquote, `depth` levels deep. Every line gets
+ * its markers, empty ones included — otherwise the quote would end at the
+ * first paragraph break and the rest would fall out of it. Headings, lists
+ * and code fences keep working inside a quote, so the text stays rendered
+ * Markdown.
+ *
+ * @param {string} text message content
+ * @param {number} depth 1 for `>`, 2 for `> >` — the archive uses 2
+ * @return {string} quoted text
+ */
+function blockquote(text, depth) {
+	const marker = Array(depth).fill('>').join(' ')
+
+	return text
+		.split('\n')
+		.map((line) => (line.trim() === '' ? marker : `${marker} ${line}`))
+		.join('\n')
+}
+
+/**
+ * The chat as it goes into the archive file.
+ *
+ * What the user wrote stands as plain text; the model's answers are quoted
+ * twice (`> >`). In Nextcloud Text that is a double bar down the side of
+ * every answer — a single one reads as a faint citation and gets lost next
+ * to the answer's own headings and lists, two are unmistakable. That tells
+ * the turns apart at a glance without a `## user` / `## assistant` heading
+ * above every one of them. Every change of speaker, in either direction,
+ * additionally gets a `---`.
+ *
+ * The blank lines around each `---` are load-bearing: directly under a line
+ * of text it would turn that line into a setext heading instead of a rule,
+ * and without the one after it a quote could swallow what follows.
+ *
+ * @param {Array} messages chat messages
+ * @return {string} markdown, empty when there is nothing to archive
+ */
+export function archiveMarkdown(messages) {
+	let markdown = ''
+	let previousRole = null
+
+	for (const message of messages) {
+		// leading blank lines and trailing whitespace go, leading spaces of
+		// the first line stay — they may be the indentation of a code block
+		const content = (message.content ?? '').replace(/^(\s*\n)+/, '').trimEnd()
+		if (message.pending || content === '' || !['user', 'assistant'].includes(message.role)) {
+			continue
+		}
+
+		// two turns of the same speaker in a row — a question sent again
+		// after a failed answer — are one side of the conversation, not two
+		if (previousRole !== null) {
+			markdown += previousRole === message.role ? '\n\n' : '\n\n---\n\n'
+		}
+		markdown += message.role === 'assistant' ? blockquote(content, 2) : content
+		previousRole = message.role
+	}
+
+	return markdown
+}
+
 export const useChatStore = defineStore('chat', {
 	state: () => ({
 		chats: [],
@@ -1014,6 +1076,10 @@ export const useChatStore = defineStore('chat', {
 		/**
 		 * Spec §6.2: the server writes the file, the browser only supplies the
 		 * markdown. The chat stays in the browser and gets marked archived.
+		 *
+		 * Only the conversation goes into the file — no profile, model or
+		 * system prompt. The archive is something to read back, and a page of
+		 * configuration above the first question is what made it hard to.
 		 */
 		async archive() {
 			const chat = this.activeChat
@@ -1021,23 +1087,16 @@ export const useChatStore = defineStore('chat', {
 				return
 			}
 
-			const config = useConfigStore()
-			const profile = config.profileById(chat.profile_id) ?? config.defaultProfile
-			const connection = profile ? config.connectionById(profile.connection_id) : null
-
-			const markdown = this.messages
-				.filter((m) => !m.pending)
-				.map((m) => `## ${m.role}\n\n${m.content}\n`)
-				.join('\n')
+			const markdown = archiveMarkdown(this.messages)
+			if (markdown === '') {
+				return
+			}
 
 			try {
 				const result = await api.archive({
 					title: chat.title || t('llmchat', 'Untitled chat'),
 					markdown,
 					created_at: new Date(chat.created_at ?? Date.now()).toISOString(),
-					profile: profile ? `${connection?.name ?? '?'} / ${profile.model}` : null,
-					model: profile?.model ?? null,
-					system_prompt: profile?.system_prompt ?? null,
 				})
 
 				await this.touchChat({ archived_path: result.path })

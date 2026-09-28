@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+## 2.8.0 – 2026-09-28
+
+### Changed
+- **Archived chats read like a conversation.** Your messages stand as plain text, the model's
+  answers are quoted twice (`> > …`), and every change of speaker — in either direction — gets a
+  `---`. In Nextcloud Text that is a double bar down the side of every answer: a single one reads
+  as a faint citation and gets lost next to the answer's own headings and lists, two are
+  unmistakable. It replaces a `## user` / `## assistant` heading above every turn, which buried the
+  answers' own headings in a flat list of equal-looking sections. Headings, lists and code blocks
+  keep working inside the quote, and every line is quoted, blank ones included, so an answer with
+  paragraphs stays one quote instead of falling out of it at the first break. Two messages of the
+  same speaker in a row, such as a question sent again after a failed answer, stay on one side of
+  the rule.
+- **No front matter any more**, and no profile, model or system prompt. Nextcloud Text renders the
+  YAML block as a grey box of configuration above the first question, which is not what an
+  archived chat is opened for; title and date are in the file name and the year folder anyway.
+  The archive endpoint no longer reads the dropped fields, and an older frontend that still sends
+  them is not rejected.
+
 ## 2.7.0 – 2026-09-28
 
 ### Added

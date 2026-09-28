@@ -24,22 +24,22 @@ class ArchiveController extends ApiController {
 		parent::__construct($request, $logger, $userId);
 	}
 
+	/**
+	 * Title and date only name the file — the archive itself is the bare
+	 * conversation. Profile, model and system prompt are no longer part of
+	 * it; an older frontend that still sends them is not rejected, the
+	 * fields are simply not read.
+	 */
 	#[NoAdminRequired]
 	public function store(
 		string $title,
 		string $markdown,
 		?string $created_at = null,
-		?string $profile = null,
-		?string $model = null,
-		?string $system_prompt = null,
 	): DataResponse {
 		return $this->handle(fn () => $this->service->store($this->uid(), [
 			'title' => $title,
 			'markdown' => $markdown,
 			'created_at' => $created_at,
-			'profile' => $profile,
-			'model' => $model,
-			'system_prompt' => $system_prompt,
 		]));
 	}
 }
