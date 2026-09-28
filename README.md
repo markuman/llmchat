@@ -47,7 +47,8 @@ connections, multiple profiles, switch mid-conversation from the composer bar.
 
 ### 🔋 Batteries included
 Web search, page fetching, clock, and **read-only access to your own Nextcloud** — search,
-collectives, wiki pages. No extra containers, no MCP server, no app passwords.
+collectives, wiki pages. No extra containers, no MCP server, no app passwords. External services
+that do speak MCP can be added on top.
 
 </td></tr>
 <tr><td valign="top">
@@ -204,6 +205,7 @@ Off by default. Enabled per profile, individually — because they cost you very
 | 🌐 `web_fetch` | Nextcloud server | the URL | **yes** |
 | ☁️ `nc_read` | browser → this Nextcloud | nothing | **yes** |
 | 📓 `skills` | browser → hosts you allowed | the skill file it reads | no — see below |
+| 🔗 `mcp` | Nextcloud server → your MCP servers | arguments and results | **always** |
 
 With at least one enabled, the model runs a small agent loop — 3 to 7 tool rounds (a slider in
 the general settings, default 3, overridable per profile), then a final answer without tools. A
@@ -339,6 +341,43 @@ A skill with no `description` is ignored rather than offered under its bare file
 description is what the model picks on. The settings tab lists what it found and says so when one
 is missing.
 
+### 🔗 External MCP servers
+
+For services that already speak the [Model Context Protocol](https://modelcontextprotocol.io) —
+GitLab, a maps server, whatever you run — add them under **Settings → MCP servers** and tick
+**MCP servers** in a profile. Their tools show up next to the built-in ones, named
+`mcp_{server}_{tool}` so they can neither collide with those nor hide which server a call goes to.
+Nextcloud itself stays with `nc_read`: batteries included means not needing an MCP server for
+your own files.
+
+- **Streamable HTTP only.** stdio does not exist in a browser, and the old SSE transport is
+  deprecated.
+- **Tools only.** `initialize`, `tools/list`, `tools/call` — no resources, prompts, sampling or
+  elicitation, and text results only. The server's own `instructions` go into the system prompt,
+  labelled as its own, because that is where servers put the caveats a tool description has no
+  room for.
+- **Through the server, unlike everything else here.** MCP servers, their `.well-known` documents
+  and their token endpoints send no CORS headers, so the browser talks to this Nextcloud and
+  Nextcloud to the MCP server. The upside: tokens stay on the server, encrypted with `ICrypto`, and
+  never reach the browser — the opposite of the LLM keys, which have to be there because that is
+  where the LLM request is made.
+- **Auth:** none, a static token (sent as `Authorization: Bearer`, e.g. a GitLab PAT), or OAuth
+  2.1 with PKCE, dynamic client registration and resource indicators, discovered the way the MCP
+  spec says (401 → protected resource metadata → authorization server metadata). **Connect** opens
+  a popup, you sign in with the provider, the popup closes. Servers without dynamic registration
+  take a manually registered client id; the settings show the redirect URI to register. Tokens are
+  refreshed transparently, including refresh-token rotation.
+- **Every call asks first**, whatever the profile's approval switch says. An MCP server is somebody
+  else's code with somebody else's side effects, and a tool called `delete_branch` does what it
+  says. The dialog names the server and its URL.
+- **A server that is down does not take the chat with it.** Its tools are left out of that turn and
+  the tool log says why. One that wants a sign-in in the middle of an answer is dropped for the rest
+  of it, with a note pointing you at the settings, instead of a model retrying a 401.
+
+Local MCP servers — `localhost`, the LAN — are blocked by Nextcloud's SSRF protection like any
+other server-side request. `'allow_local_remote_servers' => true` in `config.php` lifts that for
+the whole instance, which is an admin's call to make.
+
 ### 🔍 Web search needs your own SearXNG
 
 ```yaml
@@ -374,7 +413,8 @@ A tool that silently fails at its actual job is worse than one that isn't there.
 ### 🛡️ Approval mode
 
 Before `web_fetch` or `nc_read` runs, you see the tool and its arguments. Declining hands the
-model an error; it carries on without them.
+model an error; it carries on without them. MCP tools always ask, even with approval switched off
+in the profile.
 
 <img src="img/3-approval.png" alt="Approval dialog showing the exact URL the model wants to fetch, with Deny and Allow buttons" width="820">
 
@@ -419,6 +459,11 @@ Archives land in `{folder}/{YYYY}/{YYYY-MM-DD}-{slug}.md` with YAML front matter
   executed or rendered. Rate limited per user. It also **refuses to fetch this Nextcloud itself**:
   a server-side request carries no session and would read whatever happens to be public under the
   *server's* identity rather than yours. That's what `nc_read` is for.
+* **The MCP proxy** only talks to the URL you registered and whatever that server's OAuth metadata
+  names, only forwards `initialize`, `ping`, `tools/list` and `tools/call`, and goes through the
+  same SSRF checks as `web_fetch` — minus the standard-ports rule, since you picked the URL and not
+  a model. The OAuth callback is protected by a single-use `state` bound to your account; the
+  popup's link back to this tab is cut before it opens the provider's page.
 * Outgoing fetches rotate a browser User-Agent (Safari/macOS, Edge/Windows, Firefox/Linux) —
   identifying as "Nextcloud-Server-Crawler" hits bot walls instantly.
 
@@ -430,7 +475,7 @@ Archives land in `{folder}/{YYYY}/{YYYY-MM-DD}-{slug}.md` with YAML front matter
 
 ## 🚫 Not in scope
 
-File uploads · RAG · MCP · writing to Nextcloud · admin-managed shared keys · a server-side LLM
+File uploads · RAG · MCP resources, prompts and sampling · writing to Nextcloud · admin-managed shared keys · a server-side LLM
 proxy · image generation · TTS/STT
 
 Left out on purpose, not forgotten. The server-side proxy in particular would undo the entire
@@ -446,7 +491,7 @@ npm run build    # production bundle
 ```
 
 The PHP side is deliberately thin: settings CRUD, archive writing, CSP generation, initial state,
-and the `web_fetch` endpoint. Streaming, the agent loop, tool calls, token counting and error
+the `web_fetch` endpoint and the MCP proxy. Streaming, the agent loop, tool calls, token counting and error
 handling all live in the frontend — where the data already is.
 
 <details>

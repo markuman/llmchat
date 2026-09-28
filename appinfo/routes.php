@@ -51,5 +51,24 @@ return [
 		['name' => 'skills#index', 'url' => '/api/v1/skills', 'verb' => 'GET'],
 		['name' => 'skills#show', 'url' => '/api/v1/skills/read', 'verb' => 'GET'],
 		['name' => 'skills#provision', 'url' => '/api/v1/skills/provision', 'verb' => 'POST'],
+
+		// external MCP servers (issue #11). Everything MCP goes through the
+		// proxy route — the servers send no CORS headers, and the tokens stay
+		// on this side of it.
+		['name' => 'mcp#index', 'url' => '/api/v1/mcp', 'verb' => 'GET'],
+		['name' => 'mcp#create', 'url' => '/api/v1/mcp', 'verb' => 'POST'],
+		['name' => 'mcp#update', 'url' => '/api/v1/mcp/{id}', 'verb' => 'PUT',
+			'requirements' => ['id' => '\d+']],
+		['name' => 'mcp#destroy', 'url' => '/api/v1/mcp/{id}', 'verb' => 'DELETE',
+			'requirements' => ['id' => '\d+']],
+		['name' => 'mcp#connect', 'url' => '/api/v1/mcp/{id}/connect', 'verb' => 'POST',
+			'requirements' => ['id' => '\d+']],
+		['name' => 'mcp#disconnect', 'url' => '/api/v1/mcp/{id}/disconnect', 'verb' => 'POST',
+			'requirements' => ['id' => '\d+']],
+		['name' => 'mcp#rpc', 'url' => '/api/v1/mcp/{id}/rpc', 'verb' => 'POST',
+			'requirements' => ['id' => '\d+']],
+		// outside /api on purpose: this is the redirect uri registered with
+		// every authorization server, and it should read like one
+		['name' => 'mcp#oauth_callback', 'url' => '/oauth/callback', 'verb' => 'GET'],
 	],
 ];

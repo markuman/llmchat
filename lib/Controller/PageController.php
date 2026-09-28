@@ -10,6 +10,7 @@ namespace OCA\LlmChat\Controller;
 
 use OCA\LlmChat\AppInfo\Application;
 use OCA\LlmChat\Service\ConnectionService;
+use OCA\LlmChat\Service\McpService;
 use OCA\LlmChat\Service\ProfileService;
 use OCA\LlmChat\Service\SettingsService;
 use OCA\LlmChat\Service\SkillService;
@@ -33,6 +34,7 @@ class PageController extends Controller {
 		private ProfileService $profiles,
 		private SettingsService $settings,
 		private SkillService $skills,
+		private McpService $mcp,
 		private ?string $userId,
 	) {
 		parent::__construct(Application::APP_ID, $request);
@@ -63,6 +65,13 @@ class PageController extends Controller {
 		// it has to stay small.
 		$skills = $this->skills->index($userId);
 		$this->initialState->provideInitialState('skills', $skills);
+
+		// Issue #11: without tokens — jsonSerialize() never has them. The
+		// browser only needs to know which servers exist to ask the proxy.
+		$this->initialState->provideInitialState(
+			'mcp_servers',
+			array_map(static fn ($s) => $s->jsonSerialize(), $this->mcp->findAll($userId))
+		);
 
 		// Issue #19: the installed version, read from the app manager rather
 		// than hardcoded — a constant next to info.xml is a second place to

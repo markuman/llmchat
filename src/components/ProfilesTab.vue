@@ -228,6 +228,17 @@
 				{{ skillsUnavailableHint }}
 			</p>
 
+			<!-- issue #11, disabled rather than hidden for the reason above -->
+			<NcCheckboxRadioSwitch
+				:modelValue="form.enabled_tools.includes('mcp')"
+				:disabled="!config.hasMcpServers && !form.enabled_tools.includes('mcp')"
+				@update:modelValue="toggleTool('mcp', $event)">
+				{{ t('llmchat', 'MCP servers — tools of your external services, every call asks first') }}
+			</NcCheckboxRadioSwitch>
+			<p v-if="!config.hasMcpServers" class="form__hint">
+				{{ t('llmchat', 'No MCP server set up yet — add one under MCP servers.') }}
+			</p>
+
 			<p class="form__hint">
 				{{ toolsHint }}
 			</p>
@@ -252,7 +263,7 @@
 					{{ t('llmchat', 'Ask before each tool call') }}
 				</NcCheckboxRadioSwitch>
 				<p class="form__hint">
-					{{ t('llmchat', 'Recommended. A fetched page can contain instructions aimed at the model, so this is where you see the resulting request before it goes out. Date/time and web search are never confirmed.') }}
+					{{ t('llmchat', 'Recommended. A fetched page can contain instructions aimed at the model, so this is where you see the resulting request before it goes out. Date/time and web search are never confirmed; MCP tools always are.') }}
 				</p>
 
 				<!--
@@ -408,6 +419,9 @@ export default {
 
 			// what matters is what ends up at the model, so name the most
 			// far-reaching consequence of the current selection
+			if (tools.includes('mcp')) {
+				return `${base} ${this.t('llmchat', 'MCP tool arguments go to the external server through this Nextcloud, and its answers to the model. Each server adds its tool descriptions to every request.')}`
+			}
 			if (tools.includes('skills')) {
 				return `${base} ${this.t('llmchat', 'Skill descriptions are sent with every request; a skill body only when the model reads it. Your browser fetches the hosts a skill declares directly.')}`
 			}

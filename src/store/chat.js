@@ -3,7 +3,7 @@
  * except for archiving.
  */
 
-import { showError, showSuccess } from '@nextcloud/dialogs'
+import { showError, showSuccess, showWarning } from '@nextcloud/dialogs'
 import { t } from '@nextcloud/l10n'
 import { defineStore } from 'pinia'
 import { markRaw } from 'vue'
@@ -15,7 +15,13 @@ import {
 	splitThink,
 	streamCompletion,
 } from '../services/llm.js'
-import { executeTool, needsApproval, toolDefinitionsFor } from '../services/tools.js'
+import * as mcp from '../services/mcp.js'
+import {
+	alwaysNeedsApproval,
+	executeTool,
+	needsApproval,
+	toolDefinitionsFor,
+} from '../services/tools.js'
 import { useConfigStore } from './config.js'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -41,9 +47,50 @@ const MAX_ASK_USER_CALLS = 2
  * @return {string} combined prompt
  */
 function withSkillCatalogue(systemPrompt, catalogue) {
+	return appendToPrompt(systemPrompt, catalogue)
+}
+
+/**
+ * @param {string|null} systemPrompt what is there so far
+ * @param {string} section what goes after it
+ * @return {string} combined prompt
+ */
+function appendToPrompt(systemPrompt, section) {
 	const own = (systemPrompt ?? '').trim()
 
-	return own === '' ? catalogue : `${own}\n\n${catalogue}`
+	return own === '' ? section : `${own}\n\n${section}`
+}
+
+/**
+ * What MCP servers say about their own tools in `initialize` (issue #11).
+ *
+ * Worth the tokens: it is where a server puts the things a tool description
+ * has no room for — "a missing warning means missing data, not easy
+ * terrain". Labelled with the server it came from, since it is that
+ * server's text and not the user's.
+ *
+ * @param {Array} instructions `{server, text}` from mcp.definitionsFor()
+ * @return {string} a prompt section, or an empty string
+ */
+function mcpInstructionsSection(instructions) {
+	if (instructions.length === 0) {
+		return ''
+	}
+
+	return instructions
+		.map(({ server, text }) => `Instructions from the MCP server "${server.name}" `
+			+ `(its tools are prefixed mcp_${server.slug}_):\n${text}`)
+		.join('\n\n')
+}
+
+/**
+ * States in which a server cannot answer before the user did something in
+ * the settings — asking it anyway would only cost a round trip to hear so.
+ */
+const MCP_UNUSABLE_STATES = {
+	needs_token: 'no token stored',
+	needs_auth: 'not signed in',
+	needs_client_id: 'needs a client id',
 }
 
 export const useChatStore = defineStore('chat', {
@@ -593,13 +640,65 @@ export const useChatStore = defineStore('chat', {
 				return Promise.resolve(true)
 			}
 
+			// the approval dialog names the server a call goes to (issue #11)
+			const entry = mcp.describeFunction(call.function.name)
+
 			return new Promise((resolve) => {
 				this.pendingApproval = markRaw({
 					name: call.function.name,
 					args,
+					mcp: entry ? { server: entry.server.name, url: entry.server.url, tool: entry.tool.name } : null,
 					resolve,
 				})
 			})
+		},
+
+		/**
+		 * Lists the tools of every enabled MCP server for this turn (issue
+		 * #11). Whatever does not work ends up in the tool log with a reason
+		 * — the user should see why a server's tools are missing, and a
+		 * toast per message would be noise.
+		 *
+		 * @param {object} placeholder the pending assistant message
+		 * @return {Promise<{definitions: Array, instructions: Array}>} for the loop
+		 */
+		async loadMcpTools(placeholder) {
+			const config = useConfigStore()
+			const note = (name, summary) => {
+				const target = this.messages.find((m) => m.id === placeholder.id)
+				if (target) {
+					target.tool_log = [...(target.tool_log ?? []), { name, summary }]
+				}
+			}
+
+			const usable = []
+			for (const server of config.enabledMcpServers) {
+				const problem = MCP_UNUSABLE_STATES[server.auth_state]
+				if (problem) {
+					note(`mcp_${server.slug}`, `${server.name}: ${problem} — its tools are not offered`)
+				} else {
+					usable.push(server)
+				}
+			}
+
+			if (usable.length === 0) {
+				return { definitions: [], instructions: [] }
+			}
+
+			const { definitions, instructions, failures } = await mcp.definitionsFor(usable, {
+				signal: this.controller?.signal,
+			})
+
+			failures.forEach(({ server, message, authRequired }) => {
+				note(`mcp_${server.slug}`, authRequired
+					? `${server.name}: sign-in required — its tools are not offered`
+					: `${server.name}: ${message} — its tools are not offered`)
+			})
+			if (failures.some((f) => f.authRequired)) {
+				config.reloadMcpServers().catch(() => {})
+			}
+
+			return { definitions, instructions }
 		},
 
 		/**
@@ -668,7 +767,15 @@ export const useChatStore = defineStore('chat', {
 			// without the vision flag the image tools are not even offered —
 			// a text-only model would just fill its context with base64
 			const vision = profile.vision === true
-			const definitions = toolDefinitionsFor(enabledTools, { vision })
+
+			// Issue #11: whatever the MCP servers list right now. Loaded per
+			// turn (cached per page load in mcp.js) and fault tolerant — a
+			// server that is down costs its own tools, not the chat.
+			const mcpTools = enabledTools.includes('mcp')
+				? await this.loadMcpTools(placeholder)
+				: { definitions: [], instructions: [] }
+
+			let definitions = toolDefinitionsFor(enabledTools, { vision, mcp: mcpTools.definitions })
 
 			// Issue #17: the skill catalogue rides along with the profile's
 			// system prompt rather than being pushed into `history`, so it
@@ -676,9 +783,16 @@ export const useChatStore = defineStore('chat', {
 			// for messages the user actually wrote. Only when the profile has
 			// the tool — a model told about skills it cannot read will
 			// describe them instead of using them.
-			const effectiveProfile = enabledTools.includes('skills') && config.hasSkills
+			let effectiveProfile = enabledTools.includes('skills') && config.hasSkills
 				? { ...profile, system_prompt: withSkillCatalogue(profile.system_prompt, config.skillCatalogue) }
 				: profile
+			const mcpSection = mcpInstructionsSection(mcpTools.instructions)
+			if (mcpSection !== '') {
+				effectiveProfile = {
+					...effectiveProfile,
+					system_prompt: appendToPrompt(effectiveProfile.system_prompt, mcpSection),
+				}
+			}
 			// web_search runs in the browser and needs the instance url
 			const approvalRequired = profile.tool_approval !== false
 			let imagesSent = 0
@@ -704,6 +818,8 @@ export const useChatStore = defineStore('chat', {
 				// since page load cannot promise a fetch the browser will
 				// then refuse.
 				skillDomains: config.skillDomains,
+				// MCP calls can take their time; stop means stop
+				signal: this.controller.signal,
 				// ask_user is answered by the UI, so the executor gets a way
 				// back into the store instead of a service call
 				askUser: (questions) => {
@@ -775,6 +891,16 @@ export const useChatStore = defineStore('chat', {
 						}
 					}
 
+					// Issue #11: a server that wants a sign-in is gone for the
+					// rest of this answer. The model was told as much; taking
+					// the definitions away makes sure it cannot try anyway.
+					if (outcome.authRequired) {
+						const lost = outcome.authRequired
+						definitions = definitions.filter((d) => mcp.describeFunction(d.function.name)?.server.id !== lost.id)
+						showWarning(t('llmchat', 'The MCP server "{name}" needs you to sign in again — Settings → MCP servers.', { name: lost.name }))
+						config.reloadMcpServers().catch(() => {})
+					}
+
 					// one image per answer, hard: two photos in one turn is
 					// rarely what the user meant and always what the token
 					// bill notices
@@ -837,7 +963,9 @@ export const useChatStore = defineStore('chat', {
 		 * @return {Promise<boolean>} whether to run it
 		 */
 		async approveCall(call, approvalRequired) {
-			if (!approvalRequired || !needsApproval(call.function.name)) {
+			// issue #11: MCP tools ask regardless of the profile switch
+			const mandatory = alwaysNeedsApproval(call.function.name)
+			if (!mandatory && (!approvalRequired || !needsApproval(call.function.name))) {
 				return true
 			}
 

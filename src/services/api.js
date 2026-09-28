@@ -50,4 +50,13 @@ export const api = {
 	listSkills: () => call(axios.get(url('/skills'))),
 	readSkill: (id) => call(axios.get(url('/skills/read'), { params: { id } })),
 	provisionSkills: () => call(axios.post(url('/skills/provision'))),
+
+	// issue #11 — the rpc route is used by services/mcp.js directly, which
+	// needs the whole envelope rather than this error unwrapping
+	listMcpServers: () => call(axios.get(url('/mcp'))),
+	createMcpServer: (payload) => call(axios.post(url('/mcp'), payload)),
+	updateMcpServer: (id, payload) => call(axios.put(url(`/mcp/${id}`), payload)),
+	deleteMcpServer: (id) => call(axios.delete(url(`/mcp/${id}`))),
+	connectMcpServer: (id) => call(axios.post(url(`/mcp/${id}/connect`))),
+	disconnectMcpServer: (id) => call(axios.post(url(`/mcp/${id}/disconnect`))),
 }

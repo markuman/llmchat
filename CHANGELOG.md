@@ -5,6 +5,57 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+## 2.7.0 – 2026-09-28
+
+### Added
+- **External MCP servers** (issue #11), under a new **Settings → MCP servers** tab and a new `mcp`
+  tool per profile. For services that already speak the Model Context Protocol — GitLab, a maps
+  server — so each one does not have to be rebuilt as a native tool. Nextcloud itself stays with
+  `nc_read`; batteries included means not needing an MCP server for your own files.
+
+  Streamable HTTP only, since stdio does not exist in a browser and the old SSE transport is
+  deprecated. Tools only: `initialize`, `tools/list` and `tools/call`, text results; resources,
+  prompts, sampling and elicitation are out of scope, and the proxy refuses them. What a server
+  says in its `instructions` goes into the system prompt, labelled as that server's, because that
+  is where servers put the caveats a tool description has no room for.
+
+  The one feature in this app where the browser does *not* talk to the service itself: MCP
+  servers, their `.well-known` documents and their token endpoints send no CORS headers, so every
+  message goes through `POST /api/v1/mcp/{id}/rpc`. Given that, the tokens never leave the server
+  either — encrypted with `ICrypto`, never serialised, only `has_token` and an `auth_state` for the
+  badge. That is a deliberate departure from the LLM keys, which have to reach the browser because
+  the LLM request is made there. The message travels through the proxy as the JSON string the
+  browser built, not re-encoded from a PHP array: that would turn every `{}` in the tool arguments
+  into `[]`, and a strict server rightly refuses an array where its schema says object.
+
+  Authentication is none, a static bearer token (a GitLab PAT, say), or OAuth 2.1 the way the MCP
+  spec describes it: 401 → `WWW-Authenticate` → protected resource metadata (RFC 9728) →
+  authorization server metadata (RFC 8414) → dynamic client registration (RFC 7591) → PKCE with
+  S256 and the resource indicator (RFC 8707). Checked against the discovery documents of GitLab
+  and Linear. A server without dynamic registration takes a manually registered client id, and the
+  settings show the redirect URI to register. Access tokens are refreshed shortly before they run
+  out and once more on a 401; with refresh-token rotation, two requests racing into the same
+  refresh no longer cost the sign-in, because the loser re-reads what the winner stored.
+
+  The sign-in popup reports back over a `BroadcastChannel` rather than `window.opener`, and the
+  opener link is cut before the popup leaves for the provider — a hostile authorization page cannot
+  reach back into the tab it came from. The callback itself is guarded by a single-use `state`
+  bound to the signed-in user's server, and an `iss` that names a different authorization server
+  is refused as a mix-up.
+
+  Every MCP call asks for approval, even with approval switched off in the profile: an external
+  server is somebody else's code with somebody else's side effects. The dialog names the server
+  and its URL, since the function name is `mcp_{slug}_{tool}` and a slug is not something to trust.
+  A server that is down, slow or signed out costs its own tools for that turn and nothing else; the
+  tool log says why. One that asks for a sign-in in the middle of an answer is dropped for the rest
+  of it instead of being retried by the model, and the user gets a note pointing at the settings.
+
+### Changed
+- The SSRF pre-check of `web_fetch` moved into `OutboundUrlGuard`, shared with the MCP proxy, so
+  the two cannot drift apart on where the server refuses to go. The proxy skips only the
+  standard-ports rule: the user picked the URL, not a model, and `:8000` is simply where MCP
+  servers tend to run.
+
 ## 2.6.0 – 2026-09-07
 
 ### Added

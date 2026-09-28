@@ -7,7 +7,9 @@
 
 import { loadState } from '@nextcloud/initial-state'
 import { defineStore } from 'pinia'
+import { markRaw } from 'vue'
 import { api } from '../services/api.js'
+import * as mcp from '../services/mcp.js'
 
 /**
  * Bounds of the agent loop's tool budget, mirrored from SettingsService so the
@@ -75,6 +77,11 @@ export const useConfigStore = defineStore('config', {
 		 */
 		skills: safeState('skills', []),
 		/**
+		 * External MCP servers (issue #11). Never with a token — those stay
+		 * on the server, which proxies every MCP request anyway.
+		 */
+		mcpServers: safeState('mcp_servers', []),
+		/**
 		 * Urls known to the CSP of the *currently loaded page* — connections,
 		 * the SearXNG instance and whatever hosts the skills declared, since
 		 * the browser talks to all of them directly. Anything added later
@@ -86,6 +93,9 @@ export const useConfigStore = defineStore('config', {
 			...safeState('skills', []).flatMap((s) => (s.domains ?? []).map((d) => `https://${d}`)),
 		].filter(Boolean),
 		reloadRequired: false,
+		/** issue #11, see watchMcpSignIn() */
+		mcpSignInChannel: null,
+		mcpSignInListener: null,
 	}),
 
 	getters: {
@@ -186,6 +196,15 @@ export const useConfigStore = defineStore('config', {
 		 * the same, and this list has to describe what the page can reach.
 		 * Empty when skills are off, so the tool cannot outlive the switch.
 		 */
+		/** Issue #11: the servers a profile with the `mcp` tool draws from. */
+		enabledMcpServers: (state) => state.mcpServers.filter((server) => server.enabled),
+
+		hasMcpServers() {
+			return this.enabledMcpServers.length > 0
+		},
+
+		mcpServerById: (state) => (id) => state.mcpServers.find((s) => s.id === id) ?? null,
+
 		skillDomains: (state) => (
 			state.settings.skills_enabled
 				? [...new Set(state.skills.flatMap((skill) => skill.domains ?? []))]
@@ -273,6 +292,79 @@ export const useConfigStore = defineStore('config', {
 			// the browser queries SearXNG directly, so a new instance url is
 			// not in the running page's CSP yet — same rule as connections
 			this.markCspStale(this.settings.searxng_url)
+		},
+
+		async reloadMcpServers() {
+			this.mcpServers = await api.listMcpServers()
+		},
+
+		async createMcpServer(payload) {
+			const server = await api.createMcpServer(payload)
+			await this.reloadMcpServers()
+
+			return server
+		},
+
+		async updateMcpServer(id, payload) {
+			const server = await api.updateMcpServer(id, payload)
+			// the tool list and the session may both be stale now
+			mcp.invalidate(id)
+			await this.reloadMcpServers()
+
+			return server
+		},
+
+		async deleteMcpServer(id) {
+			await api.deleteMcpServer(id)
+			mcp.invalidate(id)
+			await this.reloadMcpServers()
+		},
+
+		/**
+		 * @param {number} id server
+		 * @return {Promise<string>} the url for the sign-in popup
+		 */
+		async connectMcpServer(id) {
+			const { auth_url: authUrl } = await api.connectMcpServer(id)
+
+			return authUrl
+		},
+
+		async disconnectMcpServer(id) {
+			await api.disconnectMcpServer(id)
+			mcp.invalidate(id)
+			await this.reloadMcpServers()
+		},
+
+		/**
+		 * Listens for the OAuth popup (issue #11). In the store rather than
+		 * the settings tab, so a sign-in finished after the modal was closed
+		 * still lands: the next chat turn reads the server list from here.
+		 *
+		 * @param {((result: object) => void)|null} [onResult] called with the popup's report
+		 */
+		watchMcpSignIn(onResult = null) {
+			this.mcpSignInListener = onResult
+			if (this.mcpSignInChannel || typeof BroadcastChannel === 'undefined') {
+				return
+			}
+
+			const channel = new BroadcastChannel(mcp.MCP_OAUTH_CHANNEL)
+			channel.onmessage = async ({ data }) => {
+				if (data?.type !== mcp.MCP_OAUTH_CHANNEL) {
+					return
+				}
+				if (data.server_id) {
+					mcp.invalidate(data.server_id)
+				}
+				try {
+					await this.reloadMcpServers()
+				} catch {
+					// the next page load has it
+				}
+				this.mcpSignInListener?.(data)
+			}
+			this.mcpSignInChannel = markRaw(channel)
 		},
 
 		async reloadSkills() {
