@@ -14,6 +14,9 @@
 			<p class="approval__intro">
 				{{ intro }}
 			</p>
+			<p v-if="pending.mcp" class="approval__server">
+				{{ pending.mcp.url }}
+			</p>
 
 			<dl class="approval__args">
 				<template v-for="(value, key) in pending.args" :key="key">
@@ -69,6 +72,15 @@ export default {
 		},
 
 		intro() {
+			// issue #11: say where it goes — the function name alone is
+			// mcp_{slug}_{tool}, and the slug is not something to trust
+			if (this.pending.mcp) {
+				return this.t('llmchat', 'The model wants to run "{tool}" on the MCP server "{server}". The arguments below are sent to that server, and its answer to the model.', {
+					tool: this.pending.mcp.tool,
+					server: this.pending.mcp.server,
+				})
+			}
+
 			const known = DESCRIPTIONS[this.pending.name]
 
 			return known
@@ -102,6 +114,13 @@ export default {
 
 .approval__intro {
 	margin: 0 0 10px;
+}
+
+.approval__server {
+	margin: -4px 0 10px;
+	font-size: 0.85em;
+	color: var(--color-text-maxcontrast);
+	overflow-wrap: anywhere;
 }
 
 .approval__args {

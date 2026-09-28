@@ -7,6 +7,8 @@ export default createAppConfig({
 	// entry point so that visiting Files does not pull in Vue, pinia and
 	// pdf.js for the sake of one menu entry.
 	filesplugin: resolve(join('src', 'filesplugin.js')),
+	// Issue #11: the page the OAuth popup lands on, a few lines of script
+	oauthcallback: resolve(join('src', 'oauthcallback.js')),
 }, {
 	config: {
 		build: {

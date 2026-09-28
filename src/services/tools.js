@@ -10,6 +10,9 @@
  * - `web_fetch` — goes through this app's backend, because arbitrary third
  *   party sites send no CORS headers and the browser cannot read their
  *   responses. No way around the server for that one.
+ * - `mcp` — external MCP servers (issue #11), through the backend's proxy
+ *   for the same CORS reason. Their definitions are not in DEFINITIONS: they
+ *   are whatever the servers list at the start of a turn, see mcp.js.
  */
 
 // Strings in tool results are deliberately not translated: they are read by
@@ -19,6 +22,7 @@ import axios from '@nextcloud/axios'
 import { generateUrl } from '@nextcloud/router'
 import { api } from './api.js'
 import { downscaleImage, PROVIDER_MAX_BYTES } from './image.js'
+import * as mcp from './mcp.js'
 import * as nc from './nextcloud.js'
 import { pdfPageToImage, pdfToText } from './pdf.js'
 import { checkSkillUrl, fetchForSkill } from './skills.js'
@@ -35,7 +39,7 @@ import { checkSkillUrl, fetchForSkill } from './skills.js'
  * "read" are much easier for a model to aim at than one call with a mode
  * parameter.
  */
-export const TOOL_IDS = ['datetime', 'ask_user', 'web_search', 'web_fetch', 'nc_read', 'skills']
+export const TOOL_IDS = ['datetime', 'ask_user', 'web_search', 'web_fetch', 'nc_read', 'skills', 'mcp']
 
 /** Hard cap on how much a single `ask_user` call may ask (issue #15). */
 export const MAX_QUESTIONS = 5
@@ -59,7 +63,17 @@ export const MAX_QUESTIONS = 5
  * how much narrower that is than `web_fetch`, which takes any URL the model
  * can think of and therefore always asks.
  */
-export const APPROVAL_TOOLS = ['web_fetch', 'nc_read']
+export const APPROVAL_TOOLS = ['web_fetch', 'nc_read', 'mcp']
+
+/**
+ * Tools that ask even when the profile switched approval off (issue #11).
+ *
+ * An external MCP server is somebody else's code with somebody else's side
+ * effects — a tool called `delete_branch` does what it says. Everything else
+ * here is either read-only or talks to a host the user picked by hand, which
+ * is what makes an "off" switch acceptable for them and not for this.
+ */
+export const MANDATORY_APPROVAL_TOOLS = ['mcp']
 
 /**
  * Functions that hand actual image data to the model. Only offered when the
@@ -433,16 +447,18 @@ const VISION_DESCRIPTIONS = {
  * @param {string[]} enabled tool ids from the profile
  * @param {object} [options] options
  * @param {boolean} [options.vision] the model can see images
+ * @param {Array} [options.mcp] definitions the MCP servers listed for this
+ *   turn — only used when the profile has the `mcp` tool
  * @return {Array} OpenAI-compatible tool definitions
  */
-export function toolDefinitionsFor(enabled, { vision = false } = {}) {
+export function toolDefinitionsFor(enabled, { vision = false, mcp: mcpDefinitions = [] } = {}) {
 	if (!Array.isArray(enabled) || enabled.length === 0) {
 		return []
 	}
 
 	return TOOL_IDS
 		.filter((id) => enabled.includes(id))
-		.flatMap((id) => DEFINITIONS[id])
+		.flatMap((id) => (id === 'mcp' ? mcpDefinitions : DEFINITIONS[id]))
 		.filter((definition) => vision || !VISION_TOOLS.includes(definition.function.name))
 		.map((definition) => {
 			const swap = vision ? VISION_DESCRIPTIONS[definition.function.name] : null
@@ -465,7 +481,7 @@ export function toolDefinitionsFor(enabled, { vision = false } = {}) {
  * @return {string|null} tool id
  */
 export function toolIdOf(functionName) {
-	return TOOL_ID_BY_FUNCTION[functionName] ?? null
+	return TOOL_ID_BY_FUNCTION[functionName] ?? (mcp.isMcpFunction(functionName) ? 'mcp' : null)
 }
 
 /**
@@ -476,6 +492,16 @@ export function toolIdOf(functionName) {
  */
 export function needsApproval(functionName) {
 	return APPROVAL_TOOLS.includes(toolIdOf(functionName))
+}
+
+/**
+ * Whether a call asks no matter what the profile says (issue #11).
+ *
+ * @param {string} functionName name from the tool call
+ * @return {boolean} true for MCP tools
+ */
+export function alwaysNeedsApproval(functionName) {
+	return MANDATORY_APPROVAL_TOOLS.includes(toolIdOf(functionName))
 }
 
 function toolUrl(path) {
@@ -627,6 +653,63 @@ function fail(name, message) {
 	return { content: JSON.stringify({ error: message }), summary: `${name}: ${message}` }
 }
 
+/**
+ * Runs one MCP tool call through the proxy (issue #11).
+ *
+ * A sign-in problem is reported back with `authRequired`, so the loop can
+ * drop that server for the rest of the answer and tell the user — a model
+ * handed "unauthorized" just calls the same tool again, and again.
+ *
+ * @param {string} name function name
+ * @param {object} args parsed arguments
+ * @param {object} options executor options, only `signal` is used
+ * @return {Promise<object>} the usual `{content, summary}`, maybe `authRequired`
+ */
+async function executeMcp(name, args, options) {
+	const entry = mcp.describeFunction(name)
+	const label = entry ? `${entry.server.name} · ${entry.tool.name}` : name
+
+	try {
+		const result = await mcp.callTool(name, args, { signal: options.signal })
+		const payload = {
+			server: result.server.name,
+			tool: result.tool.name,
+			content: result.text,
+			...(result.truncated ? { truncated: true } : {}),
+		}
+
+		if (result.isError) {
+			return {
+				content: JSON.stringify({ ...payload, error: 'the tool reported an error, see content' }),
+				summary: `${label} — error: ${result.text.slice(0, 120)}`,
+			}
+		}
+
+		return {
+			content: JSON.stringify(payload),
+			summary: `${label} — ${result.text.length} chars${result.truncated ? ' (truncated)' : ''}`,
+		}
+	} catch (error) {
+		if (error.name === 'AbortError') {
+			throw error
+		}
+
+		if (error instanceof mcp.McpAuthRequired) {
+			return {
+				content: JSON.stringify({
+					error: `the MCP server "${error.server.name}" needs the user to sign in again. `
+						+ 'Its tools are gone for the rest of this answer — do not try them again. '
+						+ 'Tell the user to reconnect it under Settings → MCP servers.',
+				}),
+				summary: `${label} — sign-in required`,
+				authRequired: error.server,
+			}
+		}
+
+		return fail(label, error.message ?? 'unknown error')
+	}
+}
+
 function clampChars(value) {
 	const requested = Number(value ?? nc.MAX_TEXT_CHARS)
 
@@ -647,9 +730,9 @@ function clampChars(value) {
  * @param {object} call accumulated tool call {id, function: {name, arguments}}
  * @param {string[]} enabled tool ids the profile allows
  * @param {object} options runtime settings ({searxngUrl, vision, askUser,
- *   skillDomains}). `askUser` resolves with the answers, `null` when the user
- *   dismissed the dialog, or `false` when the caller refused to show one at
- *   all.
+ *   skillDomains, signal}). `askUser` resolves with the answers, `null` when
+ *   the user dismissed the dialog, or `false` when the caller refused to show
+ *   one at all. `signal` is handed to MCP calls, which can take a while.
  * @return {Promise<{content: string, summary: string, image?: object}>} result + short UI label
  */
 export async function executeTool(call, enabled = [], options = {}) {
@@ -680,6 +763,10 @@ export async function executeTool(call, enabled = [], options = {}) {
 			content: JSON.stringify({ error: 'invalid JSON in tool arguments' }),
 			summary: `${name}: invalid arguments`,
 		}
+	}
+
+	if (id === 'mcp') {
+		return executeMcp(name, args, options)
 	}
 
 	try {

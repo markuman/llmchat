@@ -1,5 +1,5 @@
 <template>
-	<!-- Spec §4.2, extended by issue #2: one modal, three tabs. -->
+	<!-- Spec §4.2, extended by issues #2 and #11: one modal, four tabs. -->
 	<NcModal
 		size="large"
 		:name="t('llmchat', 'Settings')"
@@ -28,6 +28,7 @@
 
 			<GeneralTab v-if="tab === 'general'" />
 			<ConnectionsTab v-else-if="tab === 'connections'" />
+			<McpTab v-else-if="tab === 'mcp'" />
 			<ProfilesTab v-else />
 
 			<!--
@@ -62,6 +63,7 @@ import NcNoteCard from '@nextcloud/vue/components/NcNoteCard'
 import OpenInNew from 'vue-material-design-icons/OpenInNew.vue'
 import ConnectionsTab from './ConnectionsTab.vue'
 import GeneralTab from './GeneralTab.vue'
+import McpTab from './McpTab.vue'
 import ProfilesTab from './ProfilesTab.vue'
 import { APP_REPO_URL, useConfigStore } from '../store/config.js'
 
@@ -71,6 +73,7 @@ export default {
 	components: {
 		ConnectionsTab,
 		GeneralTab,
+		McpTab,
 		NcButton,
 		NcModal,
 		NcNoteCard,
@@ -79,7 +82,7 @@ export default {
 	},
 
 	props: {
-		/** Which tab to land on — 'general', 'connections' or 'profiles'. */
+		/** Which tab to land on — 'general', 'connections', 'mcp' or 'profiles'. */
 		initialTab: {
 			type: String,
 			default: null,
@@ -105,6 +108,7 @@ export default {
 				{ id: 'general', label: this.t('llmchat', 'General') },
 				{ id: 'connections', label: this.t('llmchat', 'Connections') },
 				{ id: 'profiles', label: this.t('llmchat', 'Profiles') },
+				{ id: 'mcp', label: this.t('llmchat', 'MCP servers') },
 			]
 		},
 	},
