@@ -323,7 +323,7 @@ function deltaOf(chunk) {
  * @param {Array} [options.tools] OpenAI-compatible tool definitions
  * @param {(delta: {content: string, reasoning: string}) => void} options.onDelta per-token callback
  * @param {AbortSignal} options.signal abort signal for the stop button
- * @return {Promise<{content: string, reasoning: string, usage: object|null, toolCalls: Array}>} completion
+ * @return {Promise<{content: string, reasoning: string, usage: object|null, toolCalls: Array, finishReason: string|null}>} completion
  */
 export async function streamCompletion({ connection, profile, messages, tools, onDelta, signal }) {
 	const stream = profile.streaming !== false
@@ -350,12 +350,13 @@ export async function streamCompletion({ connection, profile, messages, tools, o
 		const content = message.content ?? ''
 		const reasoning = message.reasoning_content ?? message.reasoning ?? ''
 		const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : []
+		const finishReason = payload?.choices?.[0]?.finish_reason ?? null
 
 		if (content) {
 			onDelta?.({ content, reasoning })
 		}
 
-		return { content, reasoning, usage: payload?.usage ?? null, toolCalls }
+		return { content, reasoning, usage: payload?.usage ?? null, toolCalls, finishReason }
 	}
 
 	const reader = response.body.getReader()
@@ -365,6 +366,9 @@ export async function streamCompletion({ connection, profile, messages, tools, o
 	let content = ''
 	let reasoning = ''
 	let usage = null
+	// the last non-null one wins: recap and compact must never write a
+	// cut-off answer, and "length" is how a backend says it cut one off
+	let finishReason = null
 	// sparse, indexed by tool_calls[].index (spec: the only guaranteed field)
 	const toolCallsAcc = []
 
@@ -399,6 +403,10 @@ export async function streamCompletion({ connection, profile, messages, tools, o
 						usage = chunk.usage
 					}
 
+					if (chunk?.choices?.[0]?.finish_reason) {
+						finishReason = chunk.choices[0].finish_reason
+					}
+
 					const rawDelta = chunk?.choices?.[0]?.delta ?? {}
 					if (Array.isArray(rawDelta.tool_calls)) {
 						accumulateToolCalls(toolCallsAcc, rawDelta.tool_calls)
@@ -422,7 +430,41 @@ export async function streamCompletion({ connection, profile, messages, tools, o
 	// with an error message the model can react to.
 	const toolCalls = toolCallsAcc.filter(Boolean).filter((c) => c.function.name !== '')
 
-	return { content, reasoning, usage, toolCalls }
+	return { content, reasoning, usage, toolCalls, finishReason }
+}
+
+/**
+ * One small non-streaming call next to the chat (3.0.0): recap, compact.
+ *
+ * Built like generateTitle(): no system prompt, no tools, reasoning off —
+ * a thinking model would spend the whole `max_tokens` budget before writing
+ * the first operation. The temperature is the profile's, or none: several
+ * backends reject the field outright for fixed-temperature models, and a
+ * 400 on every recap is worse than slightly less deterministic ops.
+ *
+ * @param {object} options options
+ * @param {object} options.connection connection record
+ * @param {object} options.profile profile record; only model and connection matter
+ * @param {string} options.prompt the whole instruction, as one user message
+ * @param {number} options.maxTokens output budget
+ * @return {Promise<{text: string, finishReason: string|null, usage: object|null}>} the answer
+ */
+export async function sideCall({ connection, profile, prompt, maxTokens }) {
+	const result = await streamCompletion({
+		connection,
+		profile: {
+			...profile,
+			system_prompt: null,
+			streaming: false,
+			max_tokens: maxTokens,
+			reasoning: false,
+		},
+		messages: [{ role: 'user', content: prompt }],
+		onDelta: null,
+		signal: undefined,
+	})
+
+	return { text: stripThink(result.content).trim(), finishReason: result.finishReason, usage: result.usage }
 }
 
 /**

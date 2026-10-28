@@ -41,6 +41,12 @@ export const api = {
 	reorderProfiles: (ids) => call(axios.post(url('/profiles/reorder'), { ids })),
 	importProfiles: (profiles, connectionId) => call(axios.post(url('/profiles/import'), { profiles, connection_id: connectionId })),
 
+	// 3.0.0 — the pointers only, the file goes browser → WebDAV
+	listMemoryProfiles: () => call(axios.get(url('/memory-profiles'))),
+	createMemoryProfile: (payload) => call(axios.post(url('/memory-profiles'), payload)),
+	updateMemoryProfile: (id, payload) => call(axios.put(url(`/memory-profiles/${id}`), payload)),
+	deleteMemoryProfile: (id) => call(axios.delete(url(`/memory-profiles/${id}`))),
+
 	archive: (payload) => call(axios.post(url('/archive'), payload)),
 
 	getSettings: () => call(axios.get(url('/settings'))),

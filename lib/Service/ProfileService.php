@@ -27,6 +27,7 @@ class ProfileService {
 	public function __construct(
 		private ProfileMapper $mapper,
 		private ConnectionService $connections,
+		private MemoryProfileService $memoryProfiles,
 		private IL10N $l10n,
 	) {
 	}
@@ -61,6 +62,7 @@ class ProfileService {
 		$profile->setToolApproval((bool)($data['tool_approval'] ?? true));
 		$profile->setToolRounds($this->nullableToolRounds($data['tool_rounds'] ?? null));
 		$profile->setVision((bool)($data['vision'] ?? false));
+		$profile->setMemoryProfileId($this->memoryProfile($data['memory_profile_id'] ?? null, $userId));
 		$profile->setSortOrder($this->mapper->maxSortOrder($userId) + 1);
 
 		// the very first profile is the default, no matter what the client says
@@ -116,6 +118,9 @@ class ProfileService {
 		if (array_key_exists('vision', $data)) {
 			$profile->setVision((bool)$data['vision']);
 		}
+		if (array_key_exists('memory_profile_id', $data)) {
+			$profile->setMemoryProfileId($this->memoryProfile($data['memory_profile_id'], $userId));
+		}
 
 		$makeDefault = array_key_exists('is_default', $data) && (bool)$data['is_default'];
 		if ($makeDefault) {
@@ -152,6 +157,9 @@ class ProfileService {
 		$copy->setToolApproval($source->getToolApproval());
 		$copy->setToolRounds($source->getToolRounds());
 		$copy->setVision($source->getVision());
+		// the copy remembers the same things — a duplicate that silently
+		// went incognito would be a surprise nobody notices until it matters
+		$copy->setMemoryProfileId($source->getMemoryProfileId());
 		$copy->setIsDefault(false);
 		$copy->setSortOrder($source->getSortOrder() + 1);
 
@@ -247,6 +255,25 @@ class ProfileService {
 		$this->connections->find($connectionId, $userId);
 
 		return $connectionId;
+	}
+
+	/**
+	 * null, 0 and '' all mean incognito. Anything else has to be one of the
+	 * user's own memory profiles — a foreign id would otherwise leak the
+	 * path of somebody else's file into this user's browser.
+	 */
+	private function memoryProfile(mixed $value, string $userId): ?int {
+		if ($value === null || $value === '' || (int)$value <= 0) {
+			return null;
+		}
+
+		try {
+			$this->memoryProfiles->find((int)$value, $userId);
+		} catch (NotFoundException) {
+			throw new BadRequestException('unknown memory profile');
+		}
+
+		return (int)$value;
 	}
 
 	private function requireName(string $name): string {

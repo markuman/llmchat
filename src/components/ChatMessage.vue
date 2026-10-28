@@ -4,6 +4,7 @@
 		:class="[`message--${message.role}`, { 'message--highlight': highlighted }]"
 		:data-message-id="message.id">
 		<div class="message__meta">
+			<Brain v-if="isNote" :size="16" />
 			<span class="message__role">{{ roleLabel }}</span>
 			<span v-if="message.model" class="message__model">{{ message.model }}</span>
 			<span v-if="message.aborted" class="message__flag">{{ t('llmchat', 'stopped') }}</span>
@@ -109,6 +110,56 @@
 
 			<!-- eslint-disable-next-line vue/no-v-html -- sanitised in services/markdown.js -->
 			<div v-else class="llm-markdown" v-html="html" />
+
+			<!-- 3.0.0: what the recap did with this exchange -->
+			<div v-if="memoryStatus === 'dreaming'" class="message__memory message__memory--dreaming">
+				<Brain :size="16" />
+				{{ t('llmchat', 'Remembering…') }}
+			</div>
+			<details v-else-if="memoryStatus === 'done'" class="message__memory">
+				<summary>
+					<Brain :size="16" />
+					{{ memorySummary }}
+				</summary>
+				<ul>
+					<li v-for="(entry, i) in message.memory_log" :key="i">
+						<code>{{ entry.op }}</code> {{ entry.text }}
+					</li>
+				</ul>
+				<p v-if="memoryUsage" class="message__memory-usage">
+					{{ memoryUsage }}
+				</p>
+				<div class="message__memory-actions">
+					<NcButton
+						v-if="canUndoMemory"
+						variant="tertiary"
+						@click="chat.undoMemory(message)">
+						<template #icon>
+							<Undo :size="16" />
+						</template>
+						{{ t('llmchat', 'Undo') }}
+					</NcButton>
+					<span v-if="message.memory_undone">{{ t('llmchat', 'undone') }}</span>
+					<a
+						v-if="memoryFileUrl"
+						:href="memoryFileUrl"
+						target="_blank"
+						rel="noopener noreferrer">
+						{{ t('llmchat', 'Open file') }}
+					</a>
+				</div>
+			</details>
+			<div
+				v-else-if="memoryStatus === 'error'"
+				class="message__memory"
+				:title="message.memory_error">
+				<AlertCircleOutline :size="16" />
+				{{ t('llmchat', 'Memory not updated') }}
+			</div>
+			<div v-else-if="isNote && memoryStatus === 'noop'" class="message__memory">
+				<Brain :size="16" />
+				{{ noteNoop }}
+			</div>
 		</template>
 	</div>
 </template>
@@ -117,19 +168,27 @@
 import NcActionButton from '@nextcloud/vue/components/NcActionButton'
 import NcActions from '@nextcloud/vue/components/NcActions'
 import NcButton from '@nextcloud/vue/components/NcButton'
+import AlertCircleOutline from 'vue-material-design-icons/AlertCircleOutline.vue'
+import Brain from 'vue-material-design-icons/Brain.vue'
 import ContentCopy from 'vue-material-design-icons/ContentCopy.vue'
 import Pencil from 'vue-material-design-icons/Pencil.vue'
 import Refresh from 'vue-material-design-icons/Refresh.vue'
 import Robot from 'vue-material-design-icons/Robot.vue'
 import Sync from 'vue-material-design-icons/Sync.vue'
+import Undo from 'vue-material-design-icons/Undo.vue'
 import { renderMarkdown, renderPlain } from '../services/markdown.js'
+import { countOps, parseMemoryCommand } from '../services/memory.js'
+import { filesAppUrl } from '../services/nextcloud.js'
 import { useChatStore } from '../store/chat.js'
 import { useConfigStore } from '../store/config.js'
+import { useMemoryStore } from '../store/memory.js'
 
 export default {
 	name: 'ChatMessage',
 
 	components: {
+		AlertCircleOutline,
+		Brain,
 		ContentCopy,
 		NcActionButton,
 		NcActions,
@@ -138,6 +197,7 @@ export default {
 		Refresh,
 		Robot,
 		Sync,
+		Undo,
 	},
 
 	props: {
@@ -159,6 +219,7 @@ export default {
 		return {
 			chat: useChatStore(),
 			config: useConfigStore(),
+			memory: useMemoryStore(),
 		}
 	},
 
@@ -180,12 +241,80 @@ export default {
 			return messages[messages.length - 1]?.id === this.message.id
 		},
 
+		/** /remember and /forget — talk to the memory, not to the model */
+		isNote() {
+			return this.message.role === 'note'
+		},
+
 		roleLabel() {
+			if (this.isNote) {
+				return this.t('llmchat', 'Memory')
+			}
+
 			return this.isUser ? this.t('llmchat', 'You') : this.t('llmchat', 'Assistant')
 		},
 
 		canRegenerate() {
-			return !this.isUser && this.isLast && !this.message.pending
+			return this.message.role === 'assistant' && this.isLast && !this.message.pending
+		},
+
+		/**
+		 * A "dreaming" that no recap of this page load is working on was cut
+		 * off by a reload — showing it as still running would be a lie.
+		 */
+		memoryStatus() {
+			const status = this.message.memory_status
+			if (status === 'dreaming' && !this.chat.liveRecaps.includes(this.message.id)) {
+				return 'error'
+			}
+
+			return status ?? null
+		},
+
+		memorySummary() {
+			const log = this.message.memory_log ?? []
+			const counts = countOps(log)
+			const summary = this.t('llmchat', 'Remembered: +{added} ~{updated} −{deleted}', counts)
+
+			return log.some((entry) => entry.op === 'COMPACT')
+				? `${summary} · ${this.t('llmchat', 'compacted')}`
+				: summary
+		},
+
+		/**
+		 * Tokens the side calls cost — not part of the chat's context, so
+		 * the composer's estimate cannot know about them.
+		 */
+		memoryUsage() {
+			const calls = (this.message.memory_usage ?? []).filter((u) => u.prompt_tokens || u.completion_tokens)
+			if (calls.length === 0) {
+				return ''
+			}
+
+			return calls
+				.map((u) => this.t('llmchat', '{call}: {input} in, {output} out', {
+					call: u.call,
+					input: u.prompt_tokens ?? '?',
+					output: u.completion_tokens ?? '?',
+				}))
+				.join(' · ') + ` ${this.t('llmchat', 'tokens')}`
+		},
+
+		noteNoop() {
+			return parseMemoryCommand(this.message.content)?.kind === 'forget'
+				? this.t('llmchat', 'Nothing found to forget.')
+				: this.t('llmchat', 'Nothing new to remember.')
+		},
+
+		canUndoMemory() {
+			return !this.message.memory_undone
+				&& this.memory.canUndo(this.message.memory_profile_id, this.message.id)
+		},
+
+		memoryFileUrl() {
+			const path = this.config.memoryProfileById(this.message.memory_profile_id)?.path
+
+			return path ? filesAppUrl(path) : null
 		},
 
 		/** Profiles other than the chat's current one, for a second opinion. */
@@ -202,7 +331,7 @@ export default {
 		},
 
 		html() {
-			return this.config.settings.markdown_rendering && !this.isUser
+			return this.config.settings.markdown_rendering && !this.isUser && !this.isNote
 				? renderMarkdown(this.message.content)
 				: renderPlain(this.message.content)
 		},
@@ -315,6 +444,66 @@ export default {
 
 .message__reasoning summary {
 	cursor: pointer;
+}
+
+.message--note {
+	padding-block: 6px;
+	border: 1px dashed var(--color-border-dark);
+}
+
+.message__memory {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin-top: 6px;
+	color: var(--color-text-maxcontrast);
+	font-size: 0.85em;
+}
+
+details.message__memory {
+	display: block;
+}
+
+.message__memory summary {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	cursor: pointer;
+}
+
+.message__memory ul {
+	margin: 6px 0 0;
+	padding-inline-start: 1.2em;
+	list-style: disc;
+}
+
+.message__memory li {
+	overflow-wrap: anywhere;
+}
+
+.message__memory-usage {
+	margin: 4px 0 0;
+	font-size: 0.9em;
+}
+
+.message__memory-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.message__memory-actions a {
+	text-decoration: underline;
+}
+
+/* css only, no timer: a recap can take a while and must not cost a re-render per tick */
+.message__memory--dreaming {
+	animation: dream 1.6s ease-in-out infinite;
+}
+
+@keyframes dream {
+	0%, 100% { opacity: 0.35; }
+	50% { opacity: 1; }
 }
 
 .message__reasoning pre {

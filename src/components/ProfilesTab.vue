@@ -135,6 +135,21 @@
 				{{ modelError }}
 			</NcNoteCard>
 
+			<!--
+				3.0.0: which memory this profile reads and writes. Incognito
+				is the first option and the default, because a profile that
+				suddenly starts writing a file is not a safe surprise.
+			-->
+			<NcSelect
+				v-model="memoryOption"
+				:inputLabel="t('llmchat', 'Memory')"
+				:options="memoryOptions"
+				:clearable="false"
+				label="label" />
+			<p class="form__hint">
+				{{ memoryHint }}
+			</p>
+
 			<label class="form__label" for="llm-system-prompt">
 				{{ t('llmchat', 'System prompt') }}
 			</label>
@@ -333,6 +348,8 @@ function emptyForm(connectionId = null) {
 		// empty means "follow the general setting"
 		tool_rounds: '',
 		vision: false,
+		// null = incognito
+		memory_profile_id: null,
 	}
 }
 
@@ -387,6 +404,36 @@ export default {
 			set(option) {
 				this.form.connection_id = option?.id ?? null
 			},
+		},
+
+		memoryOptions() {
+			return [
+				{ id: null, label: this.t('llmchat', 'None (incognito)') },
+				...this.config.memoryProfiles.map((m) => ({ id: m.id, label: `${m.name} — ${m.path}` })),
+			]
+		},
+
+		memoryOption: {
+			get() {
+				return this.memoryOptions.find((o) => o.id === this.form.memory_profile_id) ?? this.memoryOptions[0]
+			},
+
+			set(option) {
+				this.form.memory_profile_id = option?.id ?? null
+			},
+		},
+
+		memoryHint() {
+			const memoryProfile = this.config.memoryProfileById(this.form.memory_profile_id)
+			if (!memoryProfile) {
+				return this.config.memoryProfiles.length === 0
+					? this.t('llmchat', 'Nothing is remembered between chats. Create a memory under Memory first.')
+					: this.t('llmchat', 'Nothing is remembered between chats.')
+			}
+
+			return memoryProfile.recap_enabled
+				? this.t('llmchat', 'The file is sent to the model with every chat, and a recap after each answer updates it.')
+				: this.t('llmchat', 'The file is sent to the model with every chat. Nothing is written back.')
 		},
 
 		modelOptions() {
@@ -536,6 +583,7 @@ export default {
 				tool_approval: profile.tool_approval ?? true,
 				tool_rounds: profile.tool_rounds ?? '',
 				vision: profile.vision === true,
+				memory_profile_id: profile.memory_profile_id ?? null,
 			}
 			this.$nextTick(this.autogrow)
 		},
@@ -584,6 +632,7 @@ export default {
 						: Number(this.form.tool_rounds),
 
 					vision: this.form.vision,
+					memory_profile_id: this.form.memory_profile_id,
 				}
 
 				if (this.form.id) {

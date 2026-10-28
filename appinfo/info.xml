@@ -39,13 +39,16 @@ Features:
 * Approval dialog before any tool call that leaves the browser, on by default
 * Chat history in IndexedDB — local to the browser, by design
 * Archive chats as Markdown files into your Nextcloud files
+* Memory: one Markdown file per memory profile in your own Files, read at the start of a chat and
+  kept up to date by a short recap after each answer — written by your browser over WebDAV, never
+  by the server. Profiles without one are incognito. `/remember` and `/forget` for the explicit cases
 * "Delete all chats" clears this browser's history in one go; archived files are not touched
 * Profile export/import as JSON (never contains secrets)
 
 **Note:** API keys are stored encrypted on the server but are necessarily delivered to the browser,
 since that is where the request is made. Each user only ever sees their own key.
 	]]></description>
-	<version>2.9.0</version>
+	<version>3.0.0</version>
 	<!-- SPDX identifier, required for apps targeting Nextcloud 31+ -->
 	<licence>AGPL-3.0-or-later</licence>
 	<author>Markus Bergholz</author>

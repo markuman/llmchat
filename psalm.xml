@@ -46,6 +46,7 @@
 		<MissingDependency>
 			<errorLevel type="suppress">
 				<file name="lib/Service/ArchiveService.php" />
+				<file name="lib/Service/MemoryProfileService.php" />
 				<file name="lib/Service/SkillService.php" />
 			</errorLevel>
 		</MissingDependency>

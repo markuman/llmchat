@@ -5,6 +5,86 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+## 3.0.0 – 2026-10-28
+
+### Added
+- **Memory.** A memory is one Markdown file in your own Files — `LLM Memory/<name>.md` unless you
+  point it elsewhere, an existing file included. It is managed under the new **Settings → Memory**
+  tab, and each profile picks one in a new **Memory** dropdown. The first option, and the default,
+  is **None (incognito)**: exactly the behaviour before 3.0, nothing read, nothing written. An
+  imported profile is incognito too, a duplicated one keeps the memory of its original.
+
+  The file is read once per chat, when the first message goes out, and goes at the very end of
+  the system prompt — after your own instructions, the skill catalogue and the MCP instructions,
+  because it is context about you and not a rule. Read once and not per turn, so the system prompt
+  stays stable for the whole chat and prompt caching keeps working. A file over its size limit is
+  cut at the last full line and the chat header says so. Switching to a profile with a different
+  memory mid-chat reads that one.
+
+  The path can point into a folder shared with you. That works, and it means everyone who can
+  edit the file writes into your system prompt — fine for a team memory you trust.
+
+  Facts are lines starting with `- `. Everything else — headings like `## work` and `## private`,
+  free text, blank lines — is yours and is left exactly where you put it.
+- **Recap.** After each finished answer, a small second call decides whether the exchange said
+  something durable about you and answers with operations only: `ADD`, `UPD`, `DEL` or `NOOP`,
+  at most five. They are applied by text match, never by line number, and an `UPD` or `DEL` that
+  does not match exactly one line is dropped rather than guessed. A duplicate `ADD` is skipped.
+  The answer shows "Remembering…" while this runs and afterwards a collapsible
+  "Remembered: +2 ~1 −0" with the operations, an **Undo** for as long as that was the last change
+  of the session — taking back the recap *and* an automatic compact it triggered, everything the
+  log lists — and a link to the file. Older versions are in the file's Nextcloud versions.
+
+  The recap sees your message and the final answer, as text. **No tool results and no
+  reasoning** — that is the injection guard: whatever a fetched page, a file or an MCP server
+  said never reaches the model that writes your memory. It is also told to store only what *you*
+  said or confirmed. A cut-off answer (`finish_reason: length`) is thrown away whole, and so is
+  prose instead of operations. The delimiter tags of the prompt (`<memory>`, `<exchange>`) are
+  stripped from everything placed inside them, so an answer quoting a page cannot close a block
+  early. Recap can use a different, cheaper profile than the chat, and can
+  be switched off per memory, which leaves a file you maintain by hand. The memory file goes to
+  that model's endpoint on every recap, and to the chat model at the start of every chat — like a
+  prompt, except cumulative and long-lived.
+
+  Recap's output budget is derived from its own limits (five updates of two 300-character lines
+  each), so a long legitimate recap is not cut off and then discarded. Recap and compact send no
+  `temperature` of their own — the profile's, or none, since several backends reject the field for
+  fixed-temperature models. What they cost in tokens is stored with the answer and shown in the
+  expanded memory line. If neither has a working
+  connection, the recap fails visibly — it does not borrow the default profile, which may be a
+  different model at a different provider.
+
+  Writes go from the browser over WebDAV with `If-Match` — there is no unguarded write. A file
+  changed in the meantime (Text editor, another tab, the desktop client) answers 412, and recap
+  re-applies the same operations to the new content once, without asking the model again. A
+  deleted file is recreated with `If-None-Match: *`.
+- **`/remember …` and `/forget …`** at the start of a message skip the chat model entirely and go
+  straight to the memory, with an explicit instruction. They show up as a memory note in the chat
+  and never reach the model.
+- **Compact.** Over a threshold (80 % of the limit by default) a memory can be rewritten shorter:
+  duplicates merged, superseded facts dropped, structure kept. Automatic if the memory says so,
+  otherwise the chat asks with a banner; there is also a button per memory in the settings. The
+  result is refused if the model ran out of tokens, returned nothing, did not get shorter, or
+  lost more than 80 % — a compact that eats the file is worse than a file that is too long.
+- The chat header shows a brain for a chat with memory (size and limit on hover) and a mask for an
+  incognito one.
+
+### Changed
+- The server now writes to your Files in one more place: it creates a memory file, empty, when a
+  memory is saved and the file does not exist yet. That is the only time PHP touches it; reading
+  and writing is the browser's job, through Nextcloud's own WebDAV, with your session. The app's
+  server code still never handles a prompt, an answer or the content of a memory.
+- `streamCompletion()` returns `finishReason`.
+
+### Fixed
+- `web_fetch` no longer returns a `final_url` that was always just the requested url. Redirects
+  are followed, but the HTTP client does not say where they ended, so the field claimed something
+  nobody knew.
+
+### Upgrading
+- New table `llm_memory_profiles` and a new column `llm_profiles.memory_profile_id`. The migration
+  runs on `occ app:disable llmchat && occ app:enable llmchat` or `occ upgrade`.
+
 ## 2.9.0 – 2026-10-28
 
 ### Added

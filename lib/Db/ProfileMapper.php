@@ -53,6 +53,20 @@ class ProfileMapper extends QBMapper {
 	}
 
 	/**
+	 * @return Profile[]
+	 * @throws Exception
+	 */
+	public function findByMemoryProfile(int $memoryProfileId, string $userId): array {
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('*')
+			->from($this->getTableName())
+			->where($qb->expr()->eq('memory_profile_id', $qb->createNamedParameter($memoryProfileId, IQueryBuilder::PARAM_INT)))
+			->andWhere($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)));
+
+		return $this->findEntities($qb);
+	}
+
+	/**
 	 * @throws DoesNotExistException
 	 * @throws MultipleObjectsReturnedException
 	 * @throws Exception

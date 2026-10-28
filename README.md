@@ -92,6 +92,19 @@ Native components, follows your theme light or dark, Markdown with syntax highli
 streaming responses, stop button, edit-and-retry, regenerate — with any profile you like.
 
 </td></tr>
+<tr><td valign="top">
+
+### 🧠 Memory you can read
+What the model knows about you is one Markdown file in your Files. Open it, edit it, version it.
+A short recap after each answer keeps it current; `/remember` and `/forget` for the rest.
+
+</td><td valign="top">
+
+### 🕶️ Incognito by default
+A profile only remembers anything once you give it a memory. Everything else stays a one-off,
+exactly like before.
+
+</td></tr>
 </table>
 
 ---
@@ -426,6 +439,70 @@ inherent to tool use, not something this app can engineer away.
 
 ---
 
+## 🧠 Memory
+
+A **memory** is a Markdown file in your own Files — `LLM Memory/<name>.md` unless you pick
+another path, an existing file included. Set them up under **Settings → Memory**, then give a
+profile one in its **Memory** dropdown. A profile without one is **incognito**: nothing is read,
+nothing is written, exactly the behaviour of every profile before 3.0.
+
+```markdown
+# memory: private
+
+## work
+- runs the Nextcloud for a small association
+- prefers Ansible over shell scripts
+
+## private
+- lives in Hamburg
+```
+
+**Reading.** The file is read once per chat, when the first message goes out, and appended to the
+end of the system prompt — after your own instructions. Once per chat rather than per message, so
+the system prompt stays stable and prompt caching keeps working. Up to the memory's size limit
+(12 000 characters, ≈ 3k tokens, by default); beyond that it is cut at a full line and the chat
+header says so.
+
+**Recap.** After each finished answer a second, small call looks at your message and the answer
+and replies with operations only — `ADD`, `UPD`, `DEL` or `NOOP`. Lines starting with `- ` are
+facts and the only thing recap touches; headings and free text are yours. The answer shows what
+was remembered, with an undo for the last change. Recap can run on a cheaper profile than the
+chat, or be switched off per memory, which leaves a file you maintain by hand.
+
+> **Costs:** recap is one extra model call per answer. The input is the whole file plus your
+> message and the answer; the output is usually one line (`NOOP`), capped at roughly 1k tokens so
+> five long updates still fit. Small, but not free — the expanded memory line under an answer
+> shows what recap and compact used. Point it at a cheap or local model if your chat model is an
+> expensive one.
+
+> **Privacy:** your memory file goes to your chosen LLM endpoint at the start of every chat and
+> with every recap, just like your prompts do. Unlike a single prompt it is cumulative and
+> long-lived — choose the recap model, and what you let it remember, with that in mind. A local
+> model for the recap keeps the file off third-party servers at least there.
+
+**Injection guard.** The recap never sees tool results or reasoning — only what you typed and the
+final answer, as text. Whatever a fetched page, a file or an MCP server says cannot write itself
+into your memory. On top of that, recap is told to store only what *you* said or confirmed.
+
+**`/remember …` and `/forget …`** at the start of a message go straight to the memory, without
+asking the chat model, and never become part of the conversation.
+
+**Compact.** When the file passes 80 % of its limit (adjustable), it can be rewritten shorter —
+duplicates merged, outdated facts dropped, structure kept. Automatically if you switch that on,
+otherwise the chat asks first. A result that is not shorter, or lost more than 80 %, is refused.
+
+**Shared folders** work — the path can be anything in your home, a folder someone shared with
+you included. Just know what that means: everyone who can edit that file writes into your system
+prompt, and their edits go through your recap like your own. Fine for a team memory you trust,
+not for a folder you merely have access to.
+
+**Writing** happens in your browser, over WebDAV, with your session — and always with `If-Match`.
+If the file changed in the meantime (you edited it in Text, another tab answered), the write fails
+with 412 instead of overwriting, and recap re-applies its operations to the new content. The
+server creates the empty file once when you save a memory; that is the only time PHP touches it.
+
+---
+
 ## 💾 Where your data lives
 
 | What | Where | Why |
@@ -434,10 +511,17 @@ inherent to tool use, not something this app can engineer away.
 | API keys | Nextcloud database, encrypted (`ICrypto`) | see [Security](#-security) |
 | **Active chats** | **your browser (IndexedDB)** | the server has no business seeing them |
 | Archived chats | your Nextcloud files, as Markdown | search, versioning, sharing, sync for free |
+| Memory | your Nextcloud files, as Markdown | readable, editable, versioned – written by your browser via WebDAV, never by this app's server code |
 
 > **Chat history is per browser, per device.** A different machine means a different history.
 > That's the deliberate consequence of not storing conversations server-side — and exactly why
 > the archive button exists. Archive what you want to keep.
+
+> **Memory and archives are files at rest.** This app's PHP code does not handle the memory — your
+> browser writes it through Nextcloud's own WebDAV — but once written it is an ordinary file in
+> your Nextcloud, readable by whoever can read your files, an admin included unless server-side
+> encryption says otherwise. Same as everything else in there. Keep it to what you would put in a
+> note.
 
 Archives land in `{folder}/{YYYY}/{YYYY-MM-DD}-{slug}.md` and contain the conversation and
 nothing else: your messages as plain text, the answers quoted twice (`> > …`), a `---` at every
@@ -478,7 +562,7 @@ name, and the file is for reading the chat back, not for reproducing the setup.
 
 ## 🚫 Not in scope
 
-File uploads · RAG · MCP resources, prompts and sampling · writing to Nextcloud · admin-managed shared keys · a server-side LLM
+File uploads · RAG · embeddings · MCP resources, prompts and sampling · writing to Nextcloud (except your own memory file) · admin-managed shared keys · a server-side LLM
 proxy · image generation · TTS/STT
 
 Left out on purpose, not forgotten. The server-side proxy in particular would undo the entire
@@ -493,7 +577,7 @@ npm run watch    # rebuild on change
 npm run build    # production bundle
 ```
 
-The PHP side is deliberately thin: settings CRUD, archive writing, CSP generation, initial state,
+The PHP side is deliberately thin: settings and memory-profile CRUD, archive writing, CSP generation, initial state,
 the `web_fetch` endpoint and the MCP proxy. Streaming, the agent loop, tool calls, token counting and error
 handling all live in the frontend — where the data already is.
 

@@ -13,6 +13,20 @@
 			@blur="saveTitle"
 			@keydown.enter.prevent="$event.target.blur()">
 
+		<!--
+			3.0.0: does this chat read and write a memory? Visible at a glance,
+			because it changes what the model knows and what gets written to
+			a file afterwards.
+		-->
+		<span
+			class="header__memory"
+			:title="memoryTitle"
+			:aria-label="memoryTitle">
+			<Brain v-if="memoryProfile" :size="18" />
+			<Incognito v-else :size="18" />
+			<span v-if="memoryTruncated" class="header__badge">{{ t('llmchat', 'memory truncated') }}</span>
+		</span>
+
 		<a
 			v-if="chat.activeChat?.archived_path"
 			:href="archiveUrl"
@@ -56,17 +70,23 @@ import NcActionButton from '@nextcloud/vue/components/NcActionButton'
 import NcActions from '@nextcloud/vue/components/NcActions'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import Archive from 'vue-material-design-icons/Archive.vue'
+import Brain from 'vue-material-design-icons/Brain.vue'
 import Delete from 'vue-material-design-icons/Delete.vue'
 import Download from 'vue-material-design-icons/Download.vue'
+import Incognito from 'vue-material-design-icons/Incognito.vue'
 import { useChatStore } from '../store/chat.js'
+import { useConfigStore } from '../store/config.js'
+import { kilo, useMemoryStore } from '../store/memory.js'
 
 export default {
 	name: 'ChatHeader',
 
 	components: {
 		Archive,
+		Brain,
 		Delete,
 		Download,
+		Incognito,
 		NcActionButton,
 		NcActions,
 		NcButton,
@@ -75,6 +95,8 @@ export default {
 	setup() {
 		return {
 			chat: useChatStore(),
+			config: useConfigStore(),
+			memory: useMemoryStore(),
 		}
 	},
 
@@ -86,6 +108,30 @@ export default {
 	},
 
 	computed: {
+		memoryProfile() {
+			return this.config.memoryProfileFor(this.chat.activeProfile)
+		},
+
+		memoryTitle() {
+			const memoryProfile = this.memoryProfile
+			if (!memoryProfile) {
+				return this.t('llmchat', 'Incognito — this profile has no memory')
+			}
+
+			const size = this.memory.sizes[memoryProfile.id]
+			const limit = kilo(memoryProfile.max_chars)
+
+			return size === undefined
+				? `${memoryProfile.name} · ${this.t('llmchat', 'up to {limit} characters', { limit })}`
+				: `${memoryProfile.name} · ${kilo(size)} / ${limit}`
+		},
+
+		memoryTruncated() {
+			const snapshot = this.memory.snapshots[this.chat.activeId]
+
+			return Boolean(snapshot?.truncated) && snapshot.memoryProfileId === this.memoryProfile?.id
+		},
+
 		archiveUrl() {
 			const path = this.chat.activeChat?.archived_path
 			if (!path) {
@@ -185,6 +231,22 @@ export default {
 .header__title:hover,
 .header__title:focus {
 	border-color: var(--color-border-dark);
+}
+
+.header__memory {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	color: var(--color-text-maxcontrast);
+}
+
+.header__badge {
+	padding: 0 6px;
+	border-radius: var(--border-radius-pill);
+	background-color: var(--color-warning);
+	color: var(--color-primary-text);
+	font-size: 0.75em;
+	white-space: nowrap;
 }
 
 .header__link {

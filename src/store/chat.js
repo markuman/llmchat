@@ -16,6 +16,7 @@ import {
 	streamCompletion,
 } from '../services/llm.js'
 import * as mcp from '../services/mcp.js'
+import { messageText, parseMemoryCommand } from '../services/memory.js'
 import {
 	alwaysNeedsApproval,
 	executeTool,
@@ -23,8 +24,21 @@ import {
 	toolDefinitionsFor,
 } from '../services/tools.js'
 import { useConfigStore } from './config.js'
+import { useMemoryStore } from './memory.js'
 
 const DAY = 24 * 60 * 60 * 1000
+
+/**
+ * Whether a message is part of the conversation the model sees. Memory notes
+ * (/remember, /forget — 3.0.0) are shown in the chat but are a conversation
+ * with the memory, not with the model.
+ *
+ * @param {object} message chat message
+ * @return {boolean} goes to the model
+ */
+function isConversation(message) {
+	return message.role === 'user' || message.role === 'assistant'
+}
 
 /**
  * How often one answer may stop to ask (issue #15). Two, not one: the first
@@ -202,6 +216,11 @@ export const useChatStore = defineStore('chat', {
 		 * applies exactly once.
 		 */
 		pendingPrompt: '',
+		/**
+		 * Message ids whose recap runs in this page load (3.0.0). A stored
+		 * "dreaming" that is not in here was interrupted by a reload.
+		 */
+		liveRecaps: [],
 	}),
 
 	getters: {
@@ -221,7 +240,7 @@ export const useChatStore = defineStore('chat', {
 			return profile ? config.connectionById(profile.connection_id) : null
 		},
 
-		contextTokens: (state) => estimateTokens(state.messages),
+		contextTokens: (state) => estimateTokens(state.messages.filter(isConversation)),
 
 		/** Grouped for the sidebar: today / this week / older (spec §5). */
 		groupedChats: (state) => {
@@ -543,6 +562,12 @@ export const useChatStore = defineStore('chat', {
 				return
 			}
 
+			const command = parseMemoryCommand(content)
+			if (command) {
+				await this.memoryCommand(content, command)
+				return
+			}
+
 			await this.ensureChat()
 
 			const message = {
@@ -657,16 +682,25 @@ export const useChatStore = defineStore('chat', {
 			this.messages.push(placeholder)
 
 			const history = this.messages
-				.filter((m) => !m.pending)
+				.filter((m) => !m.pending && isConversation(m))
 				.map((m) => ({ role: m.role, content: m.content }))
 
+			// 3.0.0: read once per chat, see useMemoryStore().snapshotFor()
+			const memoryProfile = config.memoryProfileFor(profile)
+			const chatId = this.activeId
+
 			try {
+				const memorySnapshot = memoryProfile
+					? await useMemoryStore().snapshotFor(chatId, memoryProfile, profile)
+					: null
+
 				const result = await this.runAgentLoop({
 					connection,
 					profile,
 					history,
 					placeholder,
 					signal,
+					memorySection: memorySnapshot?.section ?? '',
 				})
 
 				// backends that use inline <think> instead of a separate field
@@ -689,6 +723,20 @@ export const useChatStore = defineStore('chat', {
 
 				await this.touchChat()
 				await this.maybeGenerateTitle()
+
+				// not awaited: recap runs next to the chat, the next message
+				// does not wait for the memory to be written
+				if (memoryProfile?.recap_enabled && final.content.trim() !== '') {
+					const question = [...history].reverse().find((m) => m.role === 'user')
+					this.startRecap({
+						memoryProfile,
+						chatProfile: profile,
+						messageId: final.id,
+						question: messageText(question?.content),
+						answer: messageText(final.content),
+					})
+				}
+
 				await this.checkStorage()
 			} catch (error) {
 				const aborted = error.name === 'AbortError'
@@ -863,9 +911,10 @@ export const useChatStore = defineStore('chat', {
 		 * @param {Array} options.history user-visible messages, without tool turns
 		 * @param {object} options.placeholder the pending assistant message
 		 * @param {AbortSignal} options.signal this answer's signal — see complete()
+		 * @param {string} [options.memorySection] the memory, as a prompt section
 		 * @return {Promise<{content: string, usage: object|null}>} final completion
 		 */
-		async runAgentLoop({ connection, profile, history, placeholder, signal }) {
+		async runAgentLoop({ connection, profile, history, placeholder, signal, memorySection = '' }) {
 			const config = useConfigStore()
 			const maxRounds = config.toolRoundsFor(profile)
 
@@ -906,6 +955,14 @@ export const useChatStore = defineStore('chat', {
 				effectiveProfile = {
 					...effectiveProfile,
 					system_prompt: appendToPrompt(effectiveProfile.system_prompt, mcpSection),
+				}
+			}
+			// 3.0.0: last, after everything that is instructions — the
+			// memory is context about the user, not a rule
+			if (memorySection !== '') {
+				effectiveProfile = {
+					...effectiveProfile,
+					system_prompt: appendToPrompt(effectiveProfile.system_prompt, memorySection),
 				}
 			}
 			// web_search runs in the browser and needs the instance url
@@ -1093,6 +1150,137 @@ export const useChatStore = defineStore('chat', {
 			}
 
 			return this.requestApproval(call, args, true)
+		},
+
+		/**
+		 * Sets fields on a message, wherever it is now: in the open chat, or
+		 * only in IndexedDB because the user moved on.
+		 *
+		 * @param {string} id message id
+		 * @param {object} patch fields
+		 */
+		async patchMessage(id, patch) {
+			const local = this.messages.find((m) => m.id === id)
+			if (local) {
+				Object.assign(local, patch)
+			}
+			await db.patchMessage(id, patch)
+		},
+
+		/**
+		 * Queues a recap and mirrors its progress on the message (3.0.0).
+		 * Fire and forget: errors end up on the message, never as a throw.
+		 *
+		 * @param {object} options see useMemoryStore().recap()
+		 */
+		async startRecap(options) {
+			const memory = useMemoryStore()
+			const { messageId } = options
+			this.liveRecaps = [...this.liveRecaps, messageId]
+
+			await this.patchMessage(messageId, {
+				memory_status: 'dreaming',
+				memory_log: [],
+				memory_error: null,
+				memory_profile_id: options.memoryProfile.id,
+				memory_undone: false,
+				memory_usage: [],
+			})
+
+			// The automatic compact runs queued *behind* this recap, so it
+			// always reports after the result below has been written. It only
+			// adds to the log; the status stays whatever the recap said.
+			// usage per side call, so what the memory costs is visible next
+			// to the answer that caused it rather than nowhere
+			let log = []
+			let usage = []
+			const onCompacted = (entry, compactUsage) => {
+				log = [...log, entry]
+				usage = compactUsage ? [...usage, { call: 'compact', ...compactUsage }] : usage
+				this.patchMessage(messageId, { memory_log: log, memory_usage: usage }).catch(() => {})
+			}
+
+			try {
+				const result = await memory.recap({ ...options, onCompacted })
+				log = [...result.log, ...log]
+				usage = result.usage ? [{ call: 'recap', ...result.usage }, ...usage] : usage
+				await this.patchMessage(messageId, {
+					memory_status: result.status,
+					memory_log: log,
+					memory_error: result.error ?? null,
+					memory_usage: usage,
+				})
+			} catch (error) {
+				await this.patchMessage(messageId, { memory_status: 'error', memory_error: error.message })
+					.catch(() => {})
+			} finally {
+				this.liveRecaps = this.liveRecaps.filter((id) => id !== messageId)
+			}
+		},
+
+		/**
+		 * Undo for the memory change shown on a message — only offered while
+		 * it is still the last write of this session.
+		 *
+		 * @param {object} message message carrying the memory log
+		 */
+		async undoMemory(message) {
+			const memoryProfile = useConfigStore().memoryProfileById(message.memory_profile_id)
+			if (!memoryProfile) {
+				return
+			}
+
+			if (await useMemoryStore().undo(memoryProfile)) {
+				await this.patchMessage(message.id, { memory_undone: true })
+			}
+		},
+
+		/**
+		 * `/remember …` and `/forget …`: no chat call at all, straight into
+		 * the memory with an explicit instruction. Shown as a note in the
+		 * chat that never goes to the model.
+		 *
+		 * @param {string} content what the user typed
+		 * @param {{kind: string, text: string}} command parsed command
+		 */
+		async memoryCommand(content, command) {
+			const config = useConfigStore()
+			const profile = this.activeProfile
+			const memoryProfile = config.memoryProfileFor(profile)
+
+			if (!memoryProfile) {
+				showWarning(t('llmchat', 'This profile is incognito — give it a memory under Settings → Profiles.'))
+				return
+			}
+			if (command.text === '') {
+				showWarning(command.kind === 'remember'
+					? t('llmchat', 'Remember what? Write it after /remember.')
+					: t('llmchat', 'Forget what? Write it after /forget.'))
+				return
+			}
+
+			await this.ensureChat()
+
+			const note = {
+				id: db.uid(),
+				chat_id: this.activeId,
+				role: 'note',
+				kind: 'memory_note',
+				content,
+				ts: Date.now(),
+			}
+			await db.putMessage(note)
+			this.messages.push(note)
+			await this.touchChat()
+
+			await this.startRecap({
+				memoryProfile,
+				chatProfile: profile,
+				messageId: note.id,
+				question: command.text,
+				answer: '',
+				command,
+			})
 		},
 
 		/**

@@ -167,6 +167,30 @@ export async function putMessage(message) {
 	return plain
 }
 
+/**
+ * Merges `patch` into a stored message, in one transaction.
+ *
+ * For updates that arrive after the message was written and possibly after
+ * the user moved on to another chat — the recap status (3.0.0). A message
+ * that was deleted in the meantime (regenerate, delete chat) stays deleted.
+ *
+ * @param {string} id message id
+ * @param {object} patch fields to set
+ */
+export async function patchMessage(id, patch) {
+	const plain = detach(patch)
+
+	await tx(['messages'], 'readwrite', (t) => {
+		const store = t.objectStore('messages')
+		const request = store.get(id)
+		request.onsuccess = () => {
+			if (request.result) {
+				store.put({ ...request.result, ...plain })
+			}
+		}
+	})
+}
+
 export async function deleteMessages(ids) {
 	await tx(['messages'], 'readwrite', (t) => {
 		const store = t.objectStore('messages')

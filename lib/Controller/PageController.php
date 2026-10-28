@@ -11,6 +11,7 @@ namespace OCA\LlmChat\Controller;
 use OCA\LlmChat\AppInfo\Application;
 use OCA\LlmChat\Service\ConnectionService;
 use OCA\LlmChat\Service\McpService;
+use OCA\LlmChat\Service\MemoryProfileService;
 use OCA\LlmChat\Service\ProfileService;
 use OCA\LlmChat\Service\SettingsService;
 use OCA\LlmChat\Service\SkillService;
@@ -35,6 +36,7 @@ class PageController extends Controller {
 		private SettingsService $settings,
 		private SkillService $skills,
 		private McpService $mcp,
+		private MemoryProfileService $memoryProfiles,
 		private ?string $userId,
 	) {
 		parent::__construct(Application::APP_ID, $request);
@@ -71,6 +73,14 @@ class PageController extends Controller {
 		$this->initialState->provideInitialState(
 			'mcp_servers',
 			array_map(static fn ($s) => $s->jsonSerialize(), $this->mcp->findAll($userId))
+		);
+
+		// 3.0.0: name, path and the recap/compact settings — the user's own,
+		// path included, since the browser is what reads the file. The
+		// content is not in here: it is read over WebDAV when a chat needs it.
+		$this->initialState->provideInitialState(
+			'memory_profiles',
+			array_map(static fn ($m) => $m->jsonSerialize(), $this->memoryProfiles->findAll($userId))
 		);
 
 		// Issue #19: the installed version, read from the app manager rather

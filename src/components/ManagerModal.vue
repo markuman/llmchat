@@ -1,5 +1,5 @@
 <template>
-	<!-- Spec §4.2, extended by issues #2 and #11: one modal, four tabs. -->
+	<!-- Spec §4.2, extended by issues #2, #11 and 3.0.0: one modal, five tabs. -->
 	<NcModal
 		size="large"
 		:name="t('llmchat', 'Settings')"
@@ -28,6 +28,7 @@
 
 			<GeneralTab v-if="tab === 'general'" />
 			<ConnectionsTab v-else-if="tab === 'connections'" />
+			<MemoryTab v-else-if="tab === 'memory'" />
 			<McpTab v-else-if="tab === 'mcp'" />
 			<ProfilesTab v-else />
 
@@ -64,6 +65,7 @@ import OpenInNew from 'vue-material-design-icons/OpenInNew.vue'
 import ConnectionsTab from './ConnectionsTab.vue'
 import GeneralTab from './GeneralTab.vue'
 import McpTab from './McpTab.vue'
+import MemoryTab from './MemoryTab.vue'
 import ProfilesTab from './ProfilesTab.vue'
 import { APP_REPO_URL, useConfigStore } from '../store/config.js'
 
@@ -74,6 +76,7 @@ export default {
 		ConnectionsTab,
 		GeneralTab,
 		McpTab,
+		MemoryTab,
 		NcButton,
 		NcModal,
 		NcNoteCard,
@@ -82,7 +85,7 @@ export default {
 	},
 
 	props: {
-		/** Which tab to land on — 'general', 'connections', 'mcp' or 'profiles'. */
+		/** Which tab to land on — 'general', 'connections', 'memory', 'profiles' or 'mcp'. */
 		initialTab: {
 			type: String,
 			default: null,
@@ -107,6 +110,7 @@ export default {
 			return [
 				{ id: 'general', label: this.t('llmchat', 'General') },
 				{ id: 'connections', label: this.t('llmchat', 'Connections') },
+				{ id: 'memory', label: this.t('llmchat', 'Memory') },
 				{ id: 'profiles', label: this.t('llmchat', 'Profiles') },
 				{ id: 'mcp', label: this.t('llmchat', 'MCP servers') },
 			]

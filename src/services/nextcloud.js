@@ -1,5 +1,6 @@
 /**
- * Read-only access to this Nextcloud, straight from the browser.
+ * Access to this Nextcloud, straight from the browser. Read-only, with one
+ * exception: the memory file (3.0.0), see writeText().
  *
  * No PHP proxy involved: the page is same-origin, so the session cookie and
  * CSRF token are already there and every request runs as the logged-in user
@@ -14,7 +15,7 @@
  */
 
 import { getCurrentUser, getRequestToken } from '@nextcloud/auth'
-import { generateOcsUrl, generateRemoteUrl } from '@nextcloud/router'
+import { generateOcsUrl, generateRemoteUrl, generateUrl } from '@nextcloud/router'
 
 const DEFAULT_LIMIT = 10
 /** the OCS search endpoint clamps to 25 server-side anyway */
@@ -545,6 +546,151 @@ export async function readText(path, maxChars = MAX_TEXT_CHARS) {
 		chars: truncated ? maxChars : raw.length,
 		truncated,
 	}
+}
+
+/**
+ * The ETag of a DAV response. Nextcloud sends both headers, quoted; passed on
+ * exactly as received, because that is the form `If-Match` wants back.
+ *
+ * @param {Response} response any DAV response
+ * @return {string|null} etag
+ */
+function etagOf(response) {
+	return response.headers.get('ETag') ?? response.headers.get('OC-ETag') ?? null
+}
+
+/**
+ * Reads a text file *with* its ETag, for read-modify-write (3.0.0, memory).
+ *
+ * Not readText(): that truncates silently, which is fine for a model reading
+ * a log and fatal for a file that is about to be written back — the cut-off
+ * part would be gone. Here an oversized file is an error instead. The limit
+ * is three times what the memory profile allows, so a file that grew past
+ * its size still reads (and gets compacted) rather than locking up.
+ *
+ * `cache: 'no-store'`: a cached body with a cached ETag would make every
+ * write a guaranteed 412, or worse, a cached 404 would hide the file.
+ *
+ * @param {string} path file relative to the home
+ * @param {number} maxChars the memory profile's max_chars
+ * @return {Promise<{text: string, etag: string|null}|{missing: true}|{error: string}>} result
+ */
+export async function readTextWithEtag(path, maxChars) {
+	const target = davUrl(path)
+	if (target.error) {
+		return target
+	}
+
+	const limit = maxChars * 3
+	let response
+	try {
+		response = await ncFetch(target.url, {
+			cache: 'no-store',
+			headers: { 'OCS-APIRequest': 'false', Accept: 'text/markdown, text/plain, */*' },
+		})
+	} catch (error) {
+		return { error: error.message }
+	}
+
+	if (response.status === 404) {
+		return { missing: true }
+	}
+	if (!response.ok) {
+		return { error: `could not read ${target.clean} (HTTP ${response.status})` }
+	}
+
+	// four bytes per character is the widest UTF-8 sequence
+	const body = await readCapped(response, limit * 4)
+	if (body.error) {
+		return { error: `${target.clean}: ${body.error}` }
+	}
+
+	const text = new TextDecoder('utf-8', { fatal: false }).decode(body.bytes)
+	if (text.length > limit) {
+		// compact reads through here too, so past this point nothing in the
+		// app can shrink the file any more — say what still works
+		return { error: `${target.clean} is ${text.length} characters, more than three times this memory's limit — too big to read or compact automatically. Shorten it by hand, or raise the memory's maximum size` }
+	}
+
+	return { text, etag: etagOf(response) }
+}
+
+/**
+ * Writes a text file, guarded by its ETag (3.0.0, memory).
+ *
+ * There is no unguarded write: with an etag the request carries `If-Match`,
+ * without one `If-None-Match: *` — "only if it does not exist yet". Anything
+ * that changed the file in between (the Text editor, another tab, a sync
+ * client) turns into a 412 the caller handles, instead of being overwritten.
+ *
+ * @param {string} path file relative to the home
+ * @param {string} text new content
+ * @param {string|null} etag what the content was based on, null for a new file
+ * @return {Promise<{etag: string|null}|{conflict: true}|{error: string}>} result
+ */
+export async function writeText(path, text, etag) {
+	const target = davUrl(path)
+	if (target.error) {
+		return target
+	}
+
+	const guard = etag ? { 'If-Match': etag } : { 'If-None-Match': '*' }
+	let response
+	try {
+		response = await ncFetch(target.url, {
+			method: 'PUT',
+			headers: {
+				'OCS-APIRequest': 'false',
+				'Content-Type': 'text/markdown; charset=utf-8',
+				...guard,
+			},
+			body: text,
+		})
+	} catch (error) {
+		return { error: error.message }
+	}
+
+	if (response.status === 412) {
+		return { conflict: true }
+	}
+	if (response.status === 409) {
+		return { error: 'parent folder missing — save the memory profile once to create it again' }
+	}
+	if (!response.ok) {
+		return { error: `could not write ${target.clean} (HTTP ${response.status})` }
+	}
+
+	const fresh = etagOf(response)
+	if (fresh) {
+		return { etag: fresh }
+	}
+
+	// some proxies drop the header on PUT; ask instead of guessing
+	try {
+		const head = await ncFetch(target.url, {
+			method: 'HEAD',
+			cache: 'no-store',
+			headers: { 'OCS-APIRequest': 'false' },
+		})
+
+		return { etag: head.ok ? etagOf(head) : null }
+	} catch {
+		return { etag: null }
+	}
+}
+
+/**
+ * The Files app, opened on the folder of `path` with the file selected.
+ *
+ * @param {string} path file relative to the home
+ * @return {string} url
+ */
+export function filesAppUrl(path) {
+	const segments = String(path ?? '').split('/').filter(Boolean)
+	const name = segments.pop() ?? ''
+	const dir = `/${segments.join('/')}`
+
+	return generateUrl('/apps/files/?dir={dir}&scrollto={name}', { dir, name })
 }
 
 /**

@@ -82,6 +82,11 @@ export const useConfigStore = defineStore('config', {
 		 */
 		mcpServers: safeState('mcp_servers', []),
 		/**
+		 * Memory profiles (3.0.0): name, path and recap/compact knobs. The
+		 * file contents are never in here — see store/memory.js.
+		 */
+		memoryProfiles: safeState('memory_profiles', []),
+		/**
 		 * Urls known to the CSP of the *currently loaded page* — connections,
 		 * the SearXNG instance and whatever hosts the skills declared, since
 		 * the browser talks to all of them directly. Anything added later
@@ -186,6 +191,25 @@ export const useConfigStore = defineStore('config', {
 				+ lines
 		},
 
+		/** Issue #11: the servers a profile with the `mcp` tool draws from. */
+		enabledMcpServers: (state) => state.mcpServers.filter((server) => server.enabled),
+
+		hasMcpServers() {
+			return this.enabledMcpServers.length > 0
+		},
+
+		mcpServerById: (state) => (id) => state.mcpServers.find((s) => s.id === id) ?? null,
+
+		memoryProfileById: (state) => (id) => state.memoryProfiles.find((m) => m.id === id) ?? null,
+
+		/**
+		 * The memory profile a chat profile reads, or null for incognito —
+		 * including when it points at one that no longer exists.
+		 */
+		memoryProfileFor() {
+			return (profile) => (profile?.memory_profile_id ? this.memoryProfileById(profile.memory_profile_id) : null)
+		},
+
 		/**
 		 * Hosts the loaded page may reach for skills. The tool checks against
 		 * this rather than trusting the skill body, so a fetch that the CSP
@@ -196,15 +220,6 @@ export const useConfigStore = defineStore('config', {
 		 * the same, and this list has to describe what the page can reach.
 		 * Empty when skills are off, so the tool cannot outlive the switch.
 		 */
-		/** Issue #11: the servers a profile with the `mcp` tool draws from. */
-		enabledMcpServers: (state) => state.mcpServers.filter((server) => server.enabled),
-
-		hasMcpServers() {
-			return this.enabledMcpServers.length > 0
-		},
-
-		mcpServerById: (state) => (id) => state.mcpServers.find((s) => s.id === id) ?? null,
-
 		skillDomains: (state) => (
 			state.settings.skills_enabled
 				? [...new Set(state.skills.flatMap((skill) => skill.domains ?? []))]
@@ -292,6 +307,29 @@ export const useConfigStore = defineStore('config', {
 			// the browser queries SearXNG directly, so a new instance url is
 			// not in the running page's CSP yet — same rule as connections
 			this.markCspStale(this.settings.searxng_url)
+		},
+
+		async reloadMemoryProfiles() {
+			this.memoryProfiles = await api.listMemoryProfiles()
+		},
+
+		async createMemoryProfile(payload) {
+			const created = await api.createMemoryProfile(payload)
+			await this.reloadMemoryProfiles()
+
+			return created
+		},
+
+		async updateMemoryProfile(id, payload) {
+			const updated = await api.updateMemoryProfile(id, payload)
+			await this.reloadMemoryProfiles()
+
+			return updated
+		},
+
+		async deleteMemoryProfile(id) {
+			await api.deleteMemoryProfile(id)
+			await this.reloadMemoryProfiles()
 		},
 
 		async reloadMcpServers() {

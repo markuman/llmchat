@@ -19,6 +19,14 @@
 			{{ chat.storageWarning }}
 		</NcNoteCard>
 
+		<!-- 3.0.0, only when autocompact is off — otherwise it just happens -->
+		<NcNoteCard v-if="memoryFull" type="info" class="chat__note">
+			{{ t('llmchat', 'The memory "{name}" is almost full. Compact it — merge duplicates and drop outdated facts?', { name: memoryProfile.name }) }}
+			<NcButton :disabled="memory.compacting[memoryProfile.id]" @click="compact">
+				{{ memory.compacting[memoryProfile.id] ? t('llmchat', 'Compacting…') : t('llmchat', 'Compact now') }}
+			</NcButton>
+		</NcNoteCard>
+
 		<NcNoteCard v-if="chat.error" type="error" class="chat__note">
 			{{ chat.error }}
 		</NcNoteCard>
@@ -55,6 +63,7 @@ import ChatHeader from './ChatHeader.vue'
 import ChatMessage from './ChatMessage.vue'
 import { useChatStore } from '../store/chat.js'
 import { useConfigStore } from '../store/config.js'
+import { useMemoryStore } from '../store/memory.js'
 
 export default {
 	name: 'ChatView',
@@ -73,6 +82,7 @@ export default {
 		return {
 			chat: useChatStore(),
 			config: useConfigStore(),
+			memory: useMemoryStore(),
 		}
 	},
 
@@ -91,6 +101,14 @@ export default {
 			return profile
 				? this.t('llmchat', 'Using {model}. Your browser talks to the model directly.', { model: profile.model })
 				: this.t('llmchat', 'Set up a profile first.')
+		},
+
+		memoryProfile() {
+			return this.config.memoryProfileFor(this.chat.activeProfile)
+		},
+
+		memoryFull() {
+			return Boolean(this.memoryProfile && this.memory.full[this.memoryProfile.id])
 		},
 
 		lastContent() {
@@ -150,7 +168,7 @@ export default {
 		scrollToMessage(id) {
 			// the messages are rendered by v-for, so no ref list — one query
 			// against the scroller is cheaper than maintaining refs
-			const el = this.$refs.scroller?.querySelector(`[data-message-id="${id}"]`)
+			const el = this.$refs.scroller?.querySelector(`[data-message-id="${CSS.escape(id)}"]`)
 			el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
 		},
 
@@ -202,6 +220,10 @@ export default {
 
 		reload() {
 			window.location.reload()
+		},
+
+		compact() {
+			this.memory.compactNow(this.memoryProfile, this.chat.activeProfile)
 		},
 	},
 }

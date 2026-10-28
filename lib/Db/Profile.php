@@ -39,6 +39,8 @@ use OCP\AppFramework\Db\Entity;
  * @method void setToolRounds(?int $toolRounds)
  * @method bool getVision()
  * @method void setVision(bool $vision)
+ * @method int|null getMemoryProfileId()
+ * @method void setMemoryProfileId(?int $memoryProfileId)
  * @method int getSortOrder()
  * @method void setSortOrder(int $sortOrder)
  */
@@ -69,6 +71,11 @@ class Profile extends Entity implements \JsonSerializable {
 	 * tools are not even offered without this.
 	 */
 	protected bool $vision = false;
+	/**
+	 * Memory profile this chat profile reads (3.0.0). null is incognito:
+	 * nothing is injected, nothing is recapped — the behaviour before 3.0.
+	 */
+	protected ?int $memoryProfileId = null;
 	protected int $sortOrder = 0;
 
 	public function __construct() {
@@ -86,6 +93,7 @@ class Profile extends Entity implements \JsonSerializable {
 		$this->addType('toolApproval', 'boolean');
 		$this->addType('toolRounds', 'integer');
 		$this->addType('vision', 'boolean');
+		$this->addType('memoryProfileId', 'integer');
 		$this->addType('sortOrder', 'integer');
 	}
 
@@ -105,6 +113,7 @@ class Profile extends Entity implements \JsonSerializable {
 			'tool_approval' => $this->getToolApproval(),
 			'tool_rounds' => $this->getToolRounds(),
 			'vision' => $this->getVision(),
+			'memory_profile_id' => $this->getMemoryProfileId(),
 			'sort_order' => $this->getSortOrder(),
 		];
 	}
@@ -123,7 +132,9 @@ class Profile extends Entity implements \JsonSerializable {
 
 	/**
 	 * Export shape — deliberately without ids and without anything
-	 * that touches the connection (spec §3.4).
+	 * that touches the connection (spec §3.4). The memory profile is left
+	 * out for the same reason: an id is not portable, so an imported
+	 * profile starts incognito.
 	 */
 	public function toExportArray(): array {
 		return [

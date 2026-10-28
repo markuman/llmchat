@@ -64,7 +64,11 @@ class WebFetchService {
 	}
 
 	/**
-	 * @return array{url: string, final_url: string, title: string|null, content: string, truncated: bool}
+	 * No `final_url`: redirects are followed, but IClient does not expose
+	 * where they ended, and a field that always repeats the request url
+	 * claims something it does not know.
+	 *
+	 * @return array{url: string, title: string|null, content: string, truncated: bool}
 	 * @throws BadRequestException
 	 */
 	public function fetch(string $url): array {
@@ -127,7 +131,6 @@ class WebFetchService {
 
 		return [
 			'url' => $url,
-			'final_url' => $url,
 			'title' => $title,
 			'content' => $text,
 			'truncated' => $truncated,

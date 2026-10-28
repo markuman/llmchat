@@ -31,6 +31,15 @@ return [
 		['name' => 'profiles#duplicate', 'url' => '/api/v1/profiles/{id}/duplicate', 'verb' => 'POST',
 			'requirements' => ['id' => '\d+']],
 
+		// memory profiles (3.0.0). Only the pointers — the memory file itself
+		// is read and written by the browser over WebDAV
+		['name' => 'memory_profiles#index', 'url' => '/api/v1/memory-profiles', 'verb' => 'GET'],
+		['name' => 'memory_profiles#create', 'url' => '/api/v1/memory-profiles', 'verb' => 'POST'],
+		['name' => 'memory_profiles#update', 'url' => '/api/v1/memory-profiles/{id}', 'verb' => 'PUT',
+			'requirements' => ['id' => '\d+']],
+		['name' => 'memory_profiles#destroy', 'url' => '/api/v1/memory-profiles/{id}', 'verb' => 'DELETE',
+			'requirements' => ['id' => '\d+']],
+
 		// archive
 		['name' => 'archive#store', 'url' => '/api/v1/archive', 'verb' => 'POST'],
 

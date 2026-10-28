@@ -209,6 +209,10 @@ export default {
 		},
 
 		roleLabel(role) {
+			if (role === 'note') {
+				return this.t('llmchat', 'Memory')
+			}
+
 			return role === 'user' ? this.t('llmchat', 'You') : this.t('llmchat', 'Assistant')
 		},
 
