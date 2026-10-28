@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+## 3.0.1 – 2026-10-28
+
+### Fixed
+- **Recap and compact against strict backends.** The `reasoning: { enabled: false }` field is now
+  sent to OpenRouter only. Mistral (directly or behind LiteLLM) rejects the unknown field with
+  HTTP 422 `extra_forbidden`, which made every memory update fail with "Memory not updated".
+  `reasoning_effort: "none"` still goes to every backend.
+
 ## 3.0.0 – 2026-10-28
 
 ### Added

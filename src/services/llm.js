@@ -206,7 +206,7 @@ export async function testConnection(connection) {
 	}
 }
 
-function buildPayload({ profile, messages, stream, tools }) {
+function buildPayload({ connection, profile, messages, stream, tools }) {
 	const payload = {
 		model: profile.model,
 		messages,
@@ -233,8 +233,11 @@ function buildPayload({ profile, messages, stream, tools }) {
 		payload.reasoning_effort = 'none'
 
 		// OpenRouter ignores reasoning_effort and wants its own object.
-		// Backends that know neither field ignore the extra key.
-		payload.reasoning = { enabled: false }
+		// Strict backends reject an unknown `reasoning` field outright —
+		// Mistral answers 422 extra_forbidden — so it goes to OpenRouter only.
+		if (connection.provider_hint === 'openrouter') {
+			payload.reasoning = { enabled: false }
+		}
 	}
 
 	// No tool_choice on purpose: Ollama's /v1 shim does not support it and
@@ -333,7 +336,7 @@ export async function streamCompletion({ connection, profile, messages, tools, o
 		response = await fetch(chatUrl(connection), {
 			method: 'POST',
 			headers: headers(connection),
-			body: JSON.stringify(buildPayload({ profile, messages, stream, tools })),
+			body: JSON.stringify(buildPayload({ connection, profile, messages, stream, tools })),
 			signal,
 		})
 	} catch (error) {
