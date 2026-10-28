@@ -143,6 +143,17 @@ export async function deleteChat(id) {
 	})
 }
 
+/**
+ * Deletes every chat and every message in one transaction. The model list
+ * cache stays: it belongs to the connections, not to the chats.
+ */
+export async function deleteAllChats() {
+	await tx(['chats', 'messages'], 'readwrite', (t) => {
+		t.objectStore('chats').clear()
+		t.objectStore('messages').clear()
+	})
+}
+
 export async function listMessages(chatId) {
 	const messages = await tx(['messages'], 'readonly', (t) => req(t.objectStore('messages').index('chat_id').getAll(chatId)))
 

@@ -493,6 +493,35 @@ export const useChatStore = defineStore('chat', {
 			}
 		},
 
+		/**
+		 * Deletes every chat in this browser. Archived files are untouched —
+		 * they live on the server, this only clears the local history, which
+		 * is per device anyway.
+		 *
+		 * @return {Promise<number>} how many chats were deleted
+		 */
+		async deleteAllChats() {
+			const count = this.chats.length
+
+			// the in-memory state goes before the abort, not after: the
+			// aborted answer's catch keeps a partial answer via putMessage,
+			// and an in-flight title looks its chat up in this.chats —
+			// with the state gone first, neither finds anything to write
+			// into. Aborting first would also race the clear transaction
+			// and could leave an orphaned message behind.
+			this.clearSearch()
+			this.chats = []
+			this.activeId = null
+			this.messages = []
+			this.highlightId = null
+			this.abort()
+
+			await db.deleteAllChats()
+			await this.checkStorage()
+
+			return count
+		},
+
 		abort() {
 			// release anything waiting on the user first, otherwise the loop
 			// stays parked on a promise that nobody will ever resolve
@@ -606,6 +635,14 @@ export const useChatStore = defineStore('chat', {
 			this.error = null
 			this.generating = true
 			this.controller = markRaw(new AbortController())
+			// held for the whole answer: abort() nulls this.controller, and
+			// every later read of it would either miss (?.signal.aborted is
+			// undefined) or throw (the loop's .signal). The signal itself
+			// stays aborted after its controller is gone, so passing this
+			// along is what makes the abort checks actually fire — and keeps
+			// the loop on the controller of *this* answer, not of whichever
+			// complete() ran last.
+			const signal = this.controller.signal
 
 			const placeholder = {
 				id: db.uid(),
@@ -629,6 +666,7 @@ export const useChatStore = defineStore('chat', {
 					profile,
 					history,
 					placeholder,
+					signal,
 				})
 
 				// backends that use inline <think> instead of a separate field
@@ -670,10 +708,17 @@ export const useChatStore = defineStore('chat', {
 					}
 				}
 			} finally {
-				this.generating = false
-				this.controller = null
-				this.pendingApproval = null
-				this.pendingQuestions = null
+				// only tidy up what is still ours: after a stop, a newer
+				// answer may already own the controller and the dialogs.
+				// If this one was aborted, abort() has done the tidying
+				// already — resetting here would disarm the new answer's
+				// stop button and drop its approval dialog.
+				if (this.controller?.signal === signal) {
+					this.generating = false
+					this.controller = null
+					this.pendingApproval = null
+					this.pendingQuestions = null
+				}
 			}
 		},
 
@@ -722,9 +767,10 @@ export const useChatStore = defineStore('chat', {
 		 * toast per message would be noise.
 		 *
 		 * @param {object} placeholder the pending assistant message
+		 * @param {AbortSignal} signal this answer's signal
 		 * @return {Promise<{definitions: Array, instructions: Array}>} for the loop
 		 */
-		async loadMcpTools(placeholder) {
+		async loadMcpTools(placeholder, signal) {
 			const config = useConfigStore()
 			const note = (name, summary) => {
 				const target = this.messages.find((m) => m.id === placeholder.id)
@@ -748,7 +794,7 @@ export const useChatStore = defineStore('chat', {
 			}
 
 			const { definitions, instructions, failures } = await mcp.definitionsFor(usable, {
-				signal: this.controller?.signal,
+				signal,
 			})
 
 			failures.forEach(({ server, message, authRequired }) => {
@@ -783,11 +829,12 @@ export const useChatStore = defineStore('chat', {
 		 * only tool whose result comes from the UI.
 		 *
 		 * @param {Array} questions normalised questions
+		 * @param {AbortSignal} signal this answer's signal
 		 * @return {Promise<object|null>} answers by question id, null on dismiss
 		 */
-		askUser(questions) {
+		askUser(questions, signal) {
 			// nothing would ever resolve this: the dialog is already gone
-			if (this.controller?.signal.aborted) {
+			if (signal.aborted) {
 				return Promise.resolve(null)
 			}
 
@@ -810,9 +857,15 @@ export const useChatStore = defineStore('chat', {
 		 * calling tools gets one final round without tools instead of looping
 		 * forever.
 		 *
+		 * @param {object} options loop options
+		 * @param {object} options.connection backend the answer is streamed from
+		 * @param {object} options.profile profile shaping the request
+		 * @param {Array} options.history user-visible messages, without tool turns
+		 * @param {object} options.placeholder the pending assistant message
+		 * @param {AbortSignal} options.signal this answer's signal — see complete()
 		 * @return {Promise<{content: string, usage: object|null}>} final completion
 		 */
-		async runAgentLoop({ connection, profile, history, placeholder }) {
+		async runAgentLoop({ connection, profile, history, placeholder, signal }) {
 			const config = useConfigStore()
 			const maxRounds = config.toolRoundsFor(profile)
 
@@ -834,7 +887,7 @@ export const useChatStore = defineStore('chat', {
 			// turn (cached per page load in mcp.js) and fault tolerant — a
 			// server that is down costs its own tools, not the chat.
 			const mcpTools = enabledTools.includes('mcp')
-				? await this.loadMcpTools(placeholder)
+				? await this.loadMcpTools(placeholder, signal)
 				: { definitions: [], instructions: [] }
 
 			let definitions = toolDefinitionsFor(enabledTools, { vision, mcp: mcpTools.definitions })
@@ -881,7 +934,7 @@ export const useChatStore = defineStore('chat', {
 				// then refuse.
 				skillDomains: config.skillDomains,
 				// MCP calls can take their time; stop means stop
-				signal: this.controller.signal,
+				signal,
 				// ask_user is answered by the UI, so the executor gets a way
 				// back into the store instead of a service call
 				askUser: (questions) => {
@@ -889,7 +942,7 @@ export const useChatStore = defineStore('chat', {
 						return Promise.resolve(false)
 					}
 
-					return this.askUser(questions)
+					return this.askUser(questions, signal)
 				},
 			}
 
@@ -906,7 +959,7 @@ export const useChatStore = defineStore('chat', {
 					profile: effectiveProfile,
 					messages: loopMessages,
 					tools,
-					signal: this.controller.signal,
+					signal,
 					onDelta,
 				})
 
@@ -937,7 +990,7 @@ export const useChatStore = defineStore('chat', {
 				})
 
 				for (const call of result.toolCalls) {
-					if (this.controller?.signal.aborted) {
+					if (signal.aborted) {
 						throw new DOMException('aborted', 'AbortError')
 					}
 
@@ -1045,6 +1098,11 @@ export const useChatStore = defineStore('chat', {
 		/**
 		 * Spec §5.1: generated once after the first exchange, cached, never
 		 * regenerated. Falls back to the first 40 characters on failure.
+		 *
+		 * Everything is captured before the first await: generating takes a
+		 * second or two, and writing through activeChat afterwards would
+		 * hand the title to whichever chat was opened in the meantime. The
+		 * write goes to the captured id instead — the chat it belongs to.
 		 */
 		async maybeGenerateTitle() {
 			const chat = this.activeChat
@@ -1059,17 +1117,38 @@ export const useChatStore = defineStore('chat', {
 			}
 
 			const fallback = question.content.slice(0, 40).trim()
+			const connection = this.activeConnection
+			const profile = this.activeProfile
 
+			let title = fallback
 			try {
-				const title = await generateTitle({
-					connection: this.activeConnection,
-					profile: this.activeProfile,
+				title = (await generateTitle({
+					connection,
+					profile,
 					question: question.content,
 					answer: answer.content,
-				})
-				await this.touchChat({ title: title || fallback })
+				})) || fallback
 			} catch {
-				await this.touchChat({ title: fallback })
+				// the fallback title is already set
+			}
+
+			// gone while generating, renamed by hand, or wiped by
+			// delete-all: nothing to write into
+			const current = this.chats.find((c) => c.id === chat.id)
+			if (!current || current.title) {
+				return
+			}
+
+			// patched onto the current entry rather than the captured one:
+			// a profile change or archive in the meantime must survive.
+			// updated_at stays — a title is not activity, the chat keeps
+			// its place in the list.
+			const updated = { ...current, title }
+			await db.putChat(updated)
+
+			const index = this.chats.findIndex((c) => c.id === chat.id)
+			if (index !== -1) {
+				this.chats.splice(index, 1, updated)
 			}
 		},
 

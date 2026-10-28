@@ -170,6 +170,27 @@
 				</p>
 			</template>
 		</section>
+		<!-- duck.ai has the flame in the sidebar; here it sits behind the
+		     settings door next to the archive section, whose files are
+		     the ones that survive this button. -->
+		<section class="tab__section">
+			<h3 class="tab__title">
+				{{ t('llmchat', 'Danger zone') }}
+			</h3>
+
+			<NcButton
+				variant="error"
+				:disabled="chat.chats.length === 0"
+				@click="deleteAllChats">
+				<template #icon>
+					<Fire :size="20" />
+				</template>
+				{{ t('llmchat', 'Delete all chats') }}
+			</NcButton>
+			<p class="tab__hint">
+				{{ t('llmchat', 'Clears the chat history of this browser. Chats you archived stay as files; other browsers keep their own history.') }}
+			</p>
+		</section>
 	</div>
 </template>
 
@@ -179,14 +200,17 @@ import { generateUrl } from '@nextcloud/router'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
+import Fire from 'vue-material-design-icons/Fire.vue'
 import Folder from 'vue-material-design-icons/Folder.vue'
 import { SKILLS_FOLDER_NAME } from '../services/skills.js'
+import { useChatStore } from '../store/chat.js'
 import { MAX_TOOL_ROUNDS, MIN_TOOL_ROUNDS, useConfigStore } from '../store/config.js'
 
 export default {
 	name: 'GeneralTab',
 
 	components: {
+		Fire,
 		Folder,
 		NcButton,
 		NcCheckboxRadioSwitch,
@@ -194,7 +218,10 @@ export default {
 	},
 
 	setup() {
-		return { config: useConfigStore() }
+		return {
+			config: useConfigStore(),
+			chat: useChatStore(),
+		}
 	},
 
 	data() {
@@ -249,6 +276,23 @@ export default {
 	},
 
 	methods: {
+		/**
+		 * The flame. window.confirm rather than a fancy dialog, because that
+		 * is how the single-chat delete does it — one pattern for both.
+		 */
+		async deleteAllChats() {
+			if (!window.confirm(this.t(
+				'llmchat',
+				'Delete all {count} chats in this browser? This cannot be undone. Chats you archived stay as files.',
+				{ count: this.chat.chats.length },
+			))) {
+				return
+			}
+
+			const count = await this.chat.deleteAllChats()
+			showSuccess(this.n('llmchat', '%n chat deleted.', '%n chats deleted.', count))
+		},
+
 		async save(key, value) {
 			try {
 				await this.config.saveSettings({ [key]: value })

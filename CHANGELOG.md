@@ -5,6 +5,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+## 2.9.0 – 2026-10-28
+
+### Added
+- **Delete all chats**, under a new **Settings → General → Danger zone** section, with the flame
+  duck.ai users know. A confirm dialog names how many chats are about to go, then every chat and
+  message in this browser is deleted in a single IndexedDB transaction. What it does not touch:
+  the archive — chats that were archived stay as files in your Nextcloud — and the model list
+  cache, which belongs to the connections, not the chats. The hint on the button says both,
+  because the local history being per device is the whole reason the archive exists.
+
+  Placed in the settings rather than in the sidebar next to the chat list: the app deliberately
+  keeps the navigation to a single settings door (issue #2), and a button that wipes the history
+  of a whole browser does not belong one stray click away from the list it acts on. A running
+  answer is stopped first and leaves nothing behind.
+
+### Fixed
+- **Aborting an answer could continue the tool loop.** `abort()` nulls the abort controller, but
+  the agent loop and its abort checks kept reading it afterwards — the optional-chained checks
+  never matched anything, and the unchecked ones crashed with a TypeError that ended up as an
+  error banner. The loop now holds on to the signal of the answer it belongs to: a signal stays
+  aborted after its controller is gone, so the checks fire, and an answer aborted mid-tool-call
+  ends cleanly instead of resuming or crashing. A new answer sent right after a stop is no longer
+  disarmed by the old one finishing. Visible everywhere the stop button and the delete-all flame
+  meet a running answer; the flame just made it easy to hit.
+- **A title could land on the wrong chat.** Titles are generated a second or two after the answer,
+  and the write used to go through whichever chat was active by then — switch to another chat in
+  that window and it walked away with the title. The write now goes to the chat that was answered,
+  without touching its place in the list, and a chat deleted, wiped or renamed by hand while its
+  title was being generated gets none at all.
+
+### Changed
+- **Nextcloud 36** is now within the supported range. Nothing was changed in the app for it —
+  the supported range in the manifest now reads 34–36.
+
 ## 2.8.0 – 2026-09-28
 
 ### Changed

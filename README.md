@@ -6,7 +6,7 @@
 
 *Privacy-first by architecture · Batteries included · Bring your own LLM*
 
-[![Nextcloud 34–35](https://img.shields.io/badge/Nextcloud-34%E2%80%9335-0082c9)](https://nextcloud.com)
+[![Nextcloud 34–36](https://img.shields.io/badge/Nextcloud-34%E2%80%9336-0082c9)](https://nextcloud.com)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![PHP 8.3+](https://img.shields.io/badge/PHP-8.3%2B-777bb4)](https://www.php.net)
 
@@ -133,7 +133,7 @@ Open the app → **Set up connection & profile** → point it at your backend �
 
 <br>
 
-* Nextcloud 34 or 35, PHP 8.3+ — Nextcloud 35 requires 8.3 anyway, and running
+* Nextcloud 34, 35 or 36, PHP 8.3+ — Nextcloud 35 requires 8.3 anyway, and running
   34 on 8.3 is entirely normal, so there is nothing to gain from keeping 8.2 in the manifest
 * Node 20+ / npm 10+ **on the build machine** — nothing is compiled on the server
 * `.deployignore` keeps `node_modules`, sources, sourcemaps and the release tooling out: 2.5 MB
