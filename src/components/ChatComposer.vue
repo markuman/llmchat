@@ -1,25 +1,12 @@
 <template>
 	<div class="composer">
-		<div class="composer__input">
-			<!--
-				Issue #16: the file tools take a path relative to the home, and
-				typing one by hand is tedious enough that people instead
-				describe the file and hope the model finds it — which costs a
-				search, a listing and often the wrong file. Only shown when the
-				profile can actually read files; a path in the prompt is noise
-				to a profile that cannot open it.
-			-->
-			<NcButton
-				v-if="canPickFiles"
-				:aria-label="t('llmchat', 'Insert a file path')"
-				:title="t('llmchat', 'Insert a file path')"
-				:disabled="chat.generating"
-				@click="pickFiles">
-				<template #icon>
-					<Paperclip :size="20" />
-				</template>
-			</NcButton>
-
+		<!--
+			One rounded box holds everything that belongs to the input: the
+			textarea on top, a toolbar underneath with attachment button,
+			profile switcher and send/stop — the way Mistral, Claude and
+			OpenWebUI do it. The row below the box is pure metadata.
+		-->
+		<div class="composer__box">
 			<textarea
 				ref="input"
 				v-model="text"
@@ -30,50 +17,76 @@
 				@input="autogrow"
 				@keydown="onKeydown" />
 
-			<NcButton
-				v-if="chat.generating"
-				variant="error"
-				:aria-label="t('llmchat', 'Stop generating')"
-				:title="t('llmchat', 'Stop generating (Esc)')"
-				@click="chat.abort()">
-				<template #icon>
-					<StopIcon :size="20" />
-				</template>
-			</NcButton>
-			<NcButton
-				v-else
-				variant="primary"
-				:aria-label="t('llmchat', 'Send')"
-				:disabled="!canSend"
-				@click="submit">
-				<template #icon>
-					<Send :size="20" />
-				</template>
-			</NcButton>
+			<div class="composer__toolbar">
+				<!--
+					Issue #16: the file tools take a path relative to the home, and
+					typing one by hand is tedious enough that people instead
+					describe the file and hope the model finds it — which costs a
+					search, a listing and often the wrong file. Only shown when the
+					profile can actually read files; a path in the prompt is noise
+					to a profile that cannot open it.
+				-->
+				<NcButton
+					v-if="canPickFiles"
+					class="composer__tool"
+					:aria-label="t('llmchat', 'Insert a file path')"
+					:title="t('llmchat', 'Insert a file path')"
+					:disabled="chat.generating"
+					@click="pickFiles">
+					<template #icon>
+						<Paperclip :size="20" />
+					</template>
+				</NcButton>
+
+				<!--
+					No visible label on purpose: the selected profile name is its
+					own label. `ariaLabelCombobox` keeps it announced.
+				-->
+				<NcSelect
+					v-model="selectedProfile"
+					class="composer__profile"
+					:options="profileOptions"
+					:clearable="false"
+					:disabled="chat.generating"
+					:aria-label-combobox="t('llmchat', 'Profile')"
+					label="label" />
+
+				<span class="composer__spacer" />
+
+				<NcButton
+					v-if="chat.generating"
+					class="composer__send"
+					variant="error"
+					:aria-label="t('llmchat', 'Stop generating')"
+					:title="t('llmchat', 'Stop generating (Esc)')"
+					@click="chat.abort()">
+					<template #icon>
+						<StopIcon :size="20" />
+					</template>
+				</NcButton>
+				<NcButton
+					v-else
+					class="composer__send"
+					variant="primary"
+					:aria-label="t('llmchat', 'Send')"
+					:title="hint"
+					:disabled="!canSend"
+					@click="submit">
+					<template #icon>
+						<Send :size="20" />
+					</template>
+				</NcButton>
+			</div>
 		</div>
 
-		<!-- status bar (spec §5) with the profile switcher (spec §4.3) -->
+		<!-- status bar (spec §5): metadata only, the controls live in the box -->
 		<div class="composer__status">
-			<!--
-				No visible label on purpose: this is a metadata row, and the
-				selected profile name is its own label. `ariaLabelCombobox`
-				keeps it announced without taking vertical space.
-			-->
-			<NcSelect
-				v-model="selectedProfile"
-				class="composer__profile"
-				:options="profileOptions"
-				:clearable="false"
-				:disabled="chat.generating"
-				:aria-label-combobox="t('llmchat', 'Profile')"
-				label="label" />
-
 			<span v-if="chat.activeProfile" class="composer__model">
 				{{ chat.activeProfile.model }}
 			</span>
 			<span>{{ n('llmchat', '~%n token in context', '~%n tokens in context', tokens) }}</span>
 			<span v-if="costHint">{{ costHint }}</span>
-			<span class="composer__hint">{{ t('llmchat', 'Enter sends, Shift+Enter adds a line break') }}</span>
+			<span class="composer__hint">{{ hint }}</span>
 		</div>
 	</div>
 </template>
@@ -167,6 +180,17 @@ export default {
 				: this.t('llmchat', 'Create a profile to start chatting')
 		},
 
+		/**
+		 * Which modifier combination submits, mirrored in the hint next to
+		 * the status bar. Default (enter_sends off): Enter breaks the line,
+		 * Shift+Enter sends — the convention of the big chat UIs.
+		 */
+		hint() {
+			return this.config.settings.enter_sends
+				? this.t('llmchat', 'Enter sends, Shift+Enter adds a line break')
+				: this.t('llmchat', 'Shift+Enter sends, Enter adds a line break')
+		},
+
 		costHint() {
 			const connection = this.chat.activeConnection
 			if (connection?.provider_hint !== 'openrouter') {
@@ -203,7 +227,14 @@ export default {
 
 	methods: {
 		onKeydown(event) {
-			if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+			if (event.key !== 'Enter' || event.isComposing) {
+				return
+			}
+
+			// enter_sends on: Enter submits, Shift+Enter adds a line break.
+			// Off (default): Enter adds a line break, Shift+Enter submits.
+			const sends = this.config.settings.enter_sends ? !event.shiftKey : event.shiftKey
+			if (sends) {
 				event.preventDefault()
 				this.submit()
 			}
@@ -317,23 +348,121 @@ export default {
 <style scoped>
 .composer {
 	flex: 0 0 auto;
-	padding: 8px max(16px, calc((100% - 900px) / 2)) 12px;
+	padding: 8px max(16px, calc((100% - 900px) / 2)) 10px;
 	border-top: 1px solid var(--color-border);
 }
 
-.composer__input {
+/* the input is one box: textarea on top, toolbar with the controls below */
+.composer__box {
 	display: flex;
-	align-items: flex-end;
-	gap: 6px;
+	flex-direction: column;
+	border: 1px solid var(--color-border);
+	/* rounder than NC's own --border-radius-large: this box should read as
+	   one chat input, not as a form field */
+	border-radius: 16px;
+	background-color: var(--color-main-background);
+	transition: border-color 100ms ease-in-out, box-shadow 100ms ease-in-out;
+}
+
+.composer__box:focus-within {
+	border-color: var(--color-primary-element);
+	box-shadow: 0 0 0 1px var(--color-primary-element);
 }
 
 .composer__textarea {
-	flex: 1 1 auto;
+	width: 100%;
 	min-height: 44px;
 	max-height: 320px;
 	margin: 0;
+	padding: 12px 16px 4px;
+	border: none;
+	border-radius: 16px 16px 0 0;
+	background: transparent;
+	box-shadow: none;
 	resize: none;
 	overflow-y: auto;
+}
+
+.composer__textarea:focus {
+	outline: none;
+	box-shadow: none;
+}
+
+.composer__toolbar {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 4px 8px 6px;
+}
+
+.composer__spacer {
+	flex: 1 1 auto;
+}
+
+/*
+ * Round icon buttons, like the send/mic buttons of the big chat UIs. The
+ * extra .composer__box in the selector outranks NcButton's own scoped
+ * min-height/padding rules.
+ */
+.composer__box .composer__tool,
+.composer__box .composer__send {
+	flex: 0 0 auto;
+	justify-content: center;
+	width: 36px;
+	min-width: 36px;
+	height: 36px;
+	min-height: 36px;
+	padding: 0;
+	border-radius: 50%;
+}
+
+/* the profile switcher as a borderless chip inside the toolbar. The scope
+   attribute lands on .composer__toolbar (ours), so these selectors come
+   out at (0,5,0) — ahead of NcSelect's own .nc-select… .vs__dropdown-toggle
+   at (0,4,0), which would otherwise win the border-radius. */
+.composer__profile {
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: 240px;
+}
+
+.composer__box .composer__toolbar :deep(.composer__profile .vs__dropdown-toggle) {
+	min-height: 34px;
+	height: 34px;
+	padding: 0 4px 0 12px;
+	border: none;
+	border-radius: 999px;
+	background-color: var(--color-background-hover);
+	box-shadow: none;
+}
+
+.composer__box .composer__toolbar :deep(.composer__profile .vs__dropdown-toggle:hover) {
+	background-color: var(--color-background-dark);
+}
+
+.composer__box .composer__toolbar :deep(.composer__profile .vs__selected) {
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	font-size: 0.85em;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.composer__box .composer__toolbar :deep(.composer__profile .vs__search) {
+	min-height: 30px;
+	height: 30px;
+	margin: 0;
+	padding: 0;
+	font-size: 0.85em;
+}
+
+.composer__box .composer__toolbar :deep(.composer__profile .vs__actions) {
+	padding: 0 8px 0 4px;
+}
+
+.composer__box .composer__toolbar :deep(.composer__profile .vs__dropdown-menu) {
+	font-size: 0.9em;
 }
 
 .composer__status {
@@ -346,26 +475,6 @@ export default {
 	font-size: 0.78em;
 }
 
-/*
- * NcSelect brings its own min-height sized for form layouts, which would make
- * the status bar twice as tall. Scale it down to fit a metadata row.
- */
-.composer__profile {
-	flex: 0 0 auto;
-	min-width: 150px;
-	max-width: 240px;
-}
-
-.composer__profile :deep(.vs__dropdown-toggle) {
-	min-height: 30px;
-}
-
-.composer__profile :deep(input) {
-	min-height: 30px;
-	height: 30px;
-	font-size: 1em;
-}
-
 .composer__model {
 	font-family: var(--font-face-monospace, monospace);
 }
@@ -374,8 +483,31 @@ export default {
 	margin-inline-start: auto;
 }
 
-/* the keyboard hint is the first thing worth dropping on narrow screens */
 @media (max-width: 700px) {
+	.composer {
+		padding: 6px 8px 8px;
+	}
+
+	.composer__textarea {
+		padding: 10px 12px 2px;
+	}
+
+	/* the chip takes what is left between the icon buttons */
+	.composer__profile {
+		flex: 1 1 auto;
+		max-width: none;
+	}
+
+	/* bigger touch targets */
+	.composer__box .composer__tool,
+	.composer__box .composer__send {
+		width: 40px;
+		min-width: 40px;
+		height: 40px;
+		min-height: 40px;
+	}
+
+	/* the keyboard hint is the first thing worth dropping on narrow screens */
 	.composer__hint {
 		display: none;
 	}

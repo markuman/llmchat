@@ -22,6 +22,10 @@ class SettingsService {
 		'compact_mode' => false,
 		'markdown_rendering' => true,
 		'show_reasoning' => true,
+		// Off by default: Enter adds a line break, Shift+Enter sends — the
+		// convention of most LLM chat UIs. On restores the classic
+		// "Enter sends" behaviour.
+		'enter_sends' => false,
 		'default_profile_id' => null,
 		'searxng_url' => '',
 		'max_tool_rounds' => self::MIN_TOOL_ROUNDS,
@@ -71,7 +75,7 @@ class SettingsService {
 
 	private function cast(string $key, string $raw): mixed {
 		return match ($key) {
-			'compact_mode', 'markdown_rendering', 'show_reasoning', 'skills_enabled' => $raw === '1',
+			'compact_mode', 'markdown_rendering', 'show_reasoning', 'skills_enabled', 'enter_sends' => $raw === '1',
 			'default_profile_id' => (int)$raw,
 			'max_tool_rounds' => self::clampToolRounds((int)$raw),
 			default => $raw,
@@ -80,7 +84,7 @@ class SettingsService {
 
 	private function serialize(string $key, mixed $value): string {
 		return match ($key) {
-			'compact_mode', 'markdown_rendering', 'show_reasoning', 'skills_enabled' => $value ? '1' : '0',
+			'compact_mode', 'markdown_rendering', 'show_reasoning', 'skills_enabled', 'enter_sends' => $value ? '1' : '0',
 			'archive_folder' => $this->normalizeFolder((string)$value),
 			'archive_target' => in_array($value, ['files'], true) ? $value : 'files',
 			'searxng_url' => $this->normalizeSearxngUrl((string)$value),

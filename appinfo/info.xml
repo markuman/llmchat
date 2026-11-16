@@ -48,7 +48,7 @@ Features:
 **Note:** API keys are stored encrypted on the server but are necessarily delivered to the browser,
 since that is where the request is made. Each user only ever sees their own key.
 	]]></description>
-	<version>3.0.1</version>
+	<version>3.1.0</version>
 	<!-- SPDX identifier, required for apps targeting Nextcloud 31+ -->
 	<licence>AGPL-3.0-or-later</licence>
 	<author>Markus Bergholz</author>
@@ -70,6 +70,7 @@ since that is where the request is made. Each user only ever sees their own key.
 	<screenshot>https://raw.githubusercontent.com/markuman/llmchat/latest/img/2-agent-loop.png</screenshot>
 	<screenshot>https://raw.githubusercontent.com/markuman/llmchat/latest/img/3-approval.png</screenshot>
 	<screenshot>https://raw.githubusercontent.com/markuman/llmchat/latest/img/4-nextcloud-tools.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/markuman/llmchat/latest/img/5-mobile.png</screenshot>
 
 	<!--
 		PHP 8.3 rather than 8.2: Nextcloud 35 requires it anyway, and keeping

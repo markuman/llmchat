@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com).
 
 ## [Unreleased]
 
+## 3.1.0 – 2026-11-16
+
+### Changed
+- **Composer is one input box now**, the way the big chat UIs do it: a rounded field with the
+  textarea on top and a toolbar underneath — attachment button, profile switcher as a chip and
+  the round send/stop button all inside the box. The row below carries only metadata (model,
+  context tokens, cost hint). On narrow screens the box tightens up, the icon buttons grow to
+  40px touch targets and the keyboard hint is hidden.
+- **Enter adds a line break, Shift+Enter sends** — the previous default (Enter sends) is now a
+  setting: **Settings → General → "Send with Enter"**. The hint next to the status bar and the
+  send button's tooltip follow the setting. Existing users who want the old behaviour flip the
+  switch once.
+
 ## 3.0.1 – 2026-10-28
 
 ### Fixed

@@ -48,6 +48,16 @@
 			<p class="tab__hint">
 				{{ t('llmchat', 'Display only — the tokens are still generated. Turn reasoning off in the profile to actually save them.') }}
 			</p>
+
+			<NcCheckboxRadioSwitch
+				:modelValue="config.settings.enter_sends"
+				type="switch"
+				@update:modelValue="save('enter_sends', $event)">
+				{{ t('llmchat', 'Send with Enter') }}
+			</NcCheckboxRadioSwitch>
+			<p class="tab__hint">
+				{{ t('llmchat', 'When off, Enter adds a line break and Shift+Enter sends the message.') }}
+			</p>
 		</section>
 
 		<section class="tab__section">

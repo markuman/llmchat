@@ -12,7 +12,11 @@
 
 <br>
 
-<img src="img/1-chat.png" alt="A chat answering a weather question with a Markdown table, showing the collapsed tool call log and the model picker in the status bar" width="820">
+<img src="img/1-chat.png" alt="A chat with the new composer: one rounded input box holding the textarea, the attachment button, the profile chip and the round send button" width="820">
+
+<br>
+
+<img src="img/5-mobile.png" alt="The same chat on a phone: the composer box adapts to the narrow screen with larger round buttons" width="390">
 
 </div>
 
@@ -76,7 +80,7 @@ or write your own.
 
 ### 📂 Straight from Files
 "LLM Chat" in any file's menu opens a new chat with the path already in the prompt. Type the
-question, hit enter.
+question, hit Shift+Enter (Enter sends, if you switch that on under Settings → General).
 
 </td></tr>
 <tr><td valign="top">

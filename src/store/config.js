@@ -64,6 +64,7 @@ export const useConfigStore = defineStore('config', {
 			compact_mode: false,
 			markdown_rendering: true,
 			show_reasoning: true,
+			enter_sends: false,
 			default_profile_id: null,
 			searxng_url: '',
 			max_tool_rounds: MIN_TOOL_ROUNDS,
